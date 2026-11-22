@@ -1,0 +1,21 @@
+{
+  "name": "wallnut",
+  "productName": "Wallnut",
+  "version": "0.4.0",
+  "description": "Wallnut · 参考 Quantumult X 的 Windows 桌面代理客户端（mihomo 内核）",
+  "main": "electron/main.js",
+  "private": true,
+  "license": "GPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dkleo11/Wallnut.git"
+  },
+  "homepage": "https://github.com/dkleo11/Wallnut#readme",
+  "bugs": {
+    "url": "https://github.com/dkleo11/Wallnut/issues"
+  },
+
+  "dependencies": {
+    "yaml": "^2.9.1"
+  }
+}
