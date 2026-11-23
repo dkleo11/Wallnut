@@ -1,7 +1,7 @@
 {
   "name": "wallnut",
   "productName": "Wallnut",
-  "version": "0.4.8",
+  "version": "0.5.0",
   "description": "Wallnut · Windows 桌面代理客户端（Electron + mihomo 内核，便携运行）",
   "main": "electron/main.js",
   "private": true,

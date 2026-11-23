@@ -856,7 +856,13 @@
    "来源": "來源",
    "条启用": "條啟用",
    "分": "分",
-   "命中": "命中"
+   "命中": "命中",
+   "流量与连接": "流量與連線",
+   "代理流量": "代理流量",
+   "直连流量": "直連流量",
+   "总连接数": "總連線數",
+   "连接数": "連線數",
+   "等待连接数据": "等待連線資料"
   },
   "ja": {
    "(未命名)": "(名前なし)",
@@ -1683,7 +1689,13 @@
    "来源": "ソース",
    "条启用": "有効な項目",
    "分": "分",
-   "命中": "ヒット"
+   "命中": "ヒット",
+   "流量与连接": "トラフィックと接続",
+   "代理流量": "プロキシトラフィック",
+   "直连流量": "ダイレクトトラフィック",
+   "总连接数": "接続数",
+   "连接数": "接続数",
+   "等待连接数据": "接続データを待機中"
   },
   "ko": {
    "(未命名)": "(이름 없음)",
@@ -2510,7 +2522,13 @@
    "来源": "출처",
    "条启用": "적용됨",
    "分": "분",
-   "命中": "적중"
+   "命中": "적중",
+   "流量与连接": "트래픽 및 연결",
+   "代理流量": "프록시 트래픽",
+   "直连流量": "직접 연결 트래픽",
+   "总连接数": "총 연결 수",
+   "连接数": "연결 수",
+   "等待连接数据": "연결 데이터 대기 중"
   },
   "en": {
    "(未命名)": "(unnamed)",
@@ -3337,7 +3355,13 @@
    "来源": "Source",
    "条启用": "active",
    "分": "min",
-   "命中": "hits"
+   "命中": "hits",
+   "流量与连接": "Traffic and connections",
+   "代理流量": "Proxy traffic",
+   "直连流量": "Direct traffic",
+   "总连接数": "Total connections",
+   "连接数": "Connections",
+   "等待连接数据": "Waiting for connection data"
   },
   "fr": {
    "(未命名)": "(sans nom)",
@@ -4164,7 +4188,13 @@
    "来源": "Source",
    "条启用": "règles actives",
    "分": "min",
-   "命中": "correspondances"
+   "命中": "correspondances",
+   "流量与连接": "Trafic et connexions",
+   "代理流量": "Trafic proxy",
+   "直连流量": "Trafic direct",
+   "总连接数": "Connexions totales",
+   "连接数": "Connexions",
+   "等待连接数据": "En attente des données de connexion"
   },
   "es": {
    "(未命名)": "(sin nombre)",
@@ -4991,7 +5021,13 @@
    "来源": "Origen",
    "条启用": "reglas activas",
    "分": "min",
-   "命中": "coincidencias"
+   "命中": "coincidencias",
+   "流量与连接": "Tráfico y conexiones",
+   "代理流量": "Tráfico proxy",
+   "直连流量": "Tráfico directo",
+   "总连接数": "Conexiones totales",
+   "连接数": "Conexiones",
+   "等待连接数据": "Esperando datos de conexión"
   }
  },
  "terms": {
@@ -5344,7 +5380,13 @@
    "条启用": "條啟用",
    "线上规则集": "線上規則集",
    "分": "分",
-   "命中": "命中"
+   "命中": "命中",
+   "流量与连接": "流量與連線",
+   "代理流量": "代理流量",
+   "直连流量": "直連流量",
+   "总连接数": "總連線數",
+   "连接数": "連線數",
+   "等待连接数据": "等待連線資料"
   },
   "ja": {
    "首页": "ホーム",
@@ -5691,7 +5733,13 @@
    "保存并生效": "保存して反映",
    "条启用": "有効な項目",
    "分": "分",
-   "命中": "ヒット"
+   "命中": "ヒット",
+   "流量与连接": "トラフィックと接続",
+   "代理流量": "プロキシトラフィック",
+   "直连流量": "ダイレクトトラフィック",
+   "总连接数": "接続数",
+   "连接数": "接続数",
+   "等待连接数据": "接続データを待機中"
   },
   "ko": {
    "首页": "홈",
@@ -6038,7 +6086,13 @@
    "保存并生效": "저장 및 적용",
    "条启用": "적용됨",
    "分": "분",
-   "命中": "적중"
+   "命中": "적중",
+   "流量与连接": "트래픽 및 연결",
+   "代理流量": "프록시 트래픽",
+   "直连流量": "직접 연결 트래픽",
+   "总连接数": "총 연결 수",
+   "连接数": "연결 수",
+   "等待连接数据": "연결 데이터 대기 중"
   },
   "en": {
    "首页": "Home",
@@ -6344,7 +6398,13 @@
    "条启用": "active",
    "线上规则集": "Remote rule sets",
    "分": "min",
-   "命中": "hits"
+   "命中": "hits",
+   "流量与连接": "Traffic and connections",
+   "代理流量": "Proxy traffic",
+   "直连流量": "Direct traffic",
+   "总连接数": "Total connections",
+   "连接数": "Connections",
+   "等待连接数据": "Waiting for connection data"
   },
   "fr": {
    "首页": "Accueil",
@@ -6691,7 +6751,13 @@
    "保存并生效": "Enregistrer et appliquer",
    "条启用": "règles actives",
    "分": "min",
-   "命中": "correspondances"
+   "命中": "correspondances",
+   "流量与连接": "Trafic et connexions",
+   "代理流量": "Trafic proxy",
+   "直连流量": "Trafic direct",
+   "总连接数": "Connexions totales",
+   "连接数": "Connexions",
+   "等待连接数据": "En attente des données de connexion"
   },
   "es": {
    "首页": "Inicio",
@@ -7038,7 +7104,13 @@
    "保存并生效": "Guardar y aplicar",
    "条启用": "reglas activas",
    "分": "min",
-   "命中": "coincidencias"
+   "命中": "coincidencias",
+   "流量与连接": "Tráfico y conexiones",
+   "代理流量": "Tráfico proxy",
+   "直连流量": "Tráfico directo",
+   "总连接数": "Conexiones totales",
+   "连接数": "Conexiones",
+   "等待连接数据": "Esperando datos de conexión"
   }
  }
 }

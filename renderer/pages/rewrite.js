@@ -182,9 +182,12 @@ export default function Rewrite() {
         : '重写已启用，已自动开启系统代理并指向重写端口';
       toast(noCore ? base + '；注意：内核未运行，重写上游暂不可用' : base, 'ok', 5000);
     } else if (r.proxyChange === 'off') {
-      toast(st.tunEnabled
-        ? '重写已关闭，系统代理已关闭'
-        : '重写已关闭，系统代理已关闭（当前未启用 TUN，网络将退回直连）', 'info', 5000);
+      let msg = '重写已关闭，系统代理已关闭';
+      if (r.tunAutoEnabled) msg += '，已自动开启 TUN 接管';
+      else if (r.tunNeedsAdmin) msg += '；TUN 未启用且无管理员权限，无法自动开启（请以管理员身份重启后手动开启）';
+      else if (st.tunEnabled) msg += '，已切回 TUN 接管';
+      else msg += '（当前未启用 TUN，网络将退回直连）';
+      toast(msg, 'info', 5000);
     } else if (v) {
       toast('重写已启用，系统代理已指向重写端口', 'ok');
     } else {

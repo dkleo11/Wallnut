@@ -274,6 +274,9 @@ function buildConfig(state) {
   if (s.tunEnabled) {
     config.tun = {
       enable: true,
+      // 独立适配器名：mihomo 默认用 "Meta"，会和 Clash Verge 等服务模式的同名 wintun 适配器撞车
+      // （对方清理/接管时会 TerminateProcess 掉占用者，表现为内核被外部杀掉后重启超时）。改成 Wallnut 互不干扰。
+      device: 'Wallnut',
       stack: s.tunStack || 'gvisor',
       'auto-route': true,
       'auto-detect-interface': true,

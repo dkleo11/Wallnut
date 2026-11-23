@@ -38,9 +38,9 @@ svg { display: block; }
   --text: #10131C;
   --sub: rgba(16, 19, 28, .64);
   --sub-2: rgba(16, 19, 28, .74);
-  --blue: #0071E3; --blue-tint: rgba(0, 113, 227, .12); --nav-active: rgba(255, 255, 255, .72);
+  --blue: var(--custom-accent, #0071E3); --blue-tint: var(--custom-accent-tint, rgba(0, 113, 227, .12)); --nav-active: var(--custom-nav-active, rgba(255, 255, 255, .72));
   --green: #1FA34A; --red: #D70015; --orange: #C46A00; --purple: #8944AB; --indigo: #4B49C9;
-  --t-blue: #0063CC; --t-green: #0A6F2D; --t-orange: #7F4400; --t-red: #C10015;
+  --t-blue: var(--custom-accent-text, #0063CC); --t-green: #0A6F2D; --t-orange: #7F4400; --t-red: #C10015;
   --t-purple: #7A3B99; --t-indigo: #3E3CB5; --t-teal: #0A6C80;
   --card-shadow: 0 8px 22px rgba(24, 40, 90, .08);
   --panel-shadow: 0 12px 30px rgba(24, 40, 90, .10);
@@ -67,9 +67,9 @@ svg { display: block; }
   --text: #F5F7FC;
   --sub: rgba(242, 246, 255, .62);
   --sub-2: rgba(242, 246, 255, .76);
-  --blue: #0A84FF; --blue-tint: rgba(10, 132, 255, .18); --nav-active: rgba(255, 255, 255, .12);
+  --blue: var(--custom-accent, #0A84FF); --blue-tint: var(--custom-accent-tint, rgba(10, 132, 255, .18)); --nav-active: var(--custom-nav-active, rgba(255, 255, 255, .12));
   --green: #32D74B; --red: #FF453A; --orange: #FF9F0A; --purple: #BF5AF2; --indigo: #6E6BFF;
-  --t-blue: #6FBBFF; --t-green: #3DE05C; --t-orange: #FFB340; --t-red: #FF9E96;
+  --t-blue: var(--custom-accent-text, #6FBBFF); --t-green: #3DE05C; --t-orange: #FFB340; --t-red: #FF9E96;
   --t-purple: #D69BF5; --t-indigo: #B0AEFF; --t-teal: #57D4E8;
   --card-shadow: 0 10px 30px rgba(0, 0, 0, .18);
   --panel-shadow: 0 14px 40px rgba(0, 0, 0, .22);
@@ -142,7 +142,7 @@ svg { display: block; }
 .nav-item:hover:not(.active) { background: var(--fill); }
 
 /* ---------- 内容区 ---------- */
-.content { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px; background: var(--bg); overflow-y: auto; overflow-x: hidden; }
+.content { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px; background: var(--custom-bg, var(--bg)); overflow-y: auto; overflow-x: hidden; }
 .content::-webkit-scrollbar, .scroll::-webkit-scrollbar { width: 8px; height: 8px; }
 .content::-webkit-scrollbar-thumb, .scroll::-webkit-scrollbar-thumb { background: var(--ctrl); border-radius: 4px; opacity: .5; }
 .content::-webkit-scrollbar-track, .scroll::-webkit-scrollbar-track { background: transparent; }
@@ -281,6 +281,18 @@ svg { display: block; }
 .tile-v { font-size: 22px; font-weight: 700; letter-spacing: -.4px; line-height: 1.1; margin-top: 2px; }
 .tile-s { font-size: 11px; color: var(--sub); line-height: 1.3; margin-top: auto; }
 .tile.dim .tile-v { color: var(--sub); }
+.home-chart { flex: none; height: 183px; display: flex; flex-direction: column; gap: 4px; padding: 12px 18px; min-height: 183px; }
+.home-chart .card-head { flex: none; }
+.home-chart .legend { margin-left: auto; margin-right: 14px; }
+.route-chart { flex: 1; width: 100%; min-height: 0; display: block; }
+.route-chart text { fill: var(--sub); font-size: 10px; font-variant-numeric: tabular-nums; }
+.route-chart .axis-title { fill: var(--sub-2); font-size: 10px; font-weight: 600; }
+.route-chart .grid-line { stroke: var(--line); stroke-width: 1; }
+.route-chart .axis-line { stroke: var(--line-2); stroke-width: 1; }
+.route-chart .line-proxy { fill: none; stroke: #0A84FF; stroke-width: 2; stroke-linecap: round; }
+.route-chart .line-direct { fill: none; stroke: #FFB340; stroke-width: 2; stroke-linecap: round; }
+.route-chart .line-conns { fill: none; stroke: #34C759; stroke-width: 1.6; stroke-linecap: round; }
+.route-chart .chart-empty { fill: var(--sub); font-size: 11px; }
 
 /* ---------- 节点表 ---------- */
 .node-card { flex: none; display: flex; flex-direction: column; overflow: hidden; }
@@ -288,7 +300,6 @@ svg { display: block; }
 .node-row { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 14px 0 17px; position: relative; border-bottom: 1px solid var(--line); min-width: 0; text-align: left; }
 .node-row:last-child { border-bottom: 0; }
 .node-row.sel { background: var(--blue-tint); }
-.node-row:hover:not(.sel) { background: var(--fill-2); }
 .selbar { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: #0A84FF; border-radius: 0 2px 2px 0; }
 .node-name { flex: 1; min-width: 0; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: .1px; }
 .node-name.on { font-weight: 600; }
@@ -406,7 +417,7 @@ svg { display: block; }
 .conn-traffic { font-size: 11px; color: var(--sub); flex: none; width: 96px; text-align: right; }
 
 /* ---------- 设置 ---------- */
-.set-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+.set-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; align-items: start; }
 .set-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .set-group { display: flex; flex-direction: column; min-width: 0; }
 .set-label { font-size: 11px; font-weight: 600; color: var(--sub); letter-spacing: .5px; margin: 0 0 6px 4px; }
@@ -473,7 +484,6 @@ svg { display: block; }
 @media (max-width: 1120px) {
   .hero-left { width: 190px; padding-right: 16px; }
   .tiles { grid-template-columns: repeat(2, 1fr); }
-  .set-grid { grid-template-columns: 1fr; }
   .metrics { grid-template-columns: 1fr; grid-template-rows: repeat(4, 1fr); }
 }
 
@@ -882,14 +892,14 @@ html:not(.dark) body::after {
 
 /* ---------- 窗口：regular material ---------- */
 .window {
-  background: var(--win-bg);
+  background: var(--custom-bg, var(--win-bg));
   flex-direction: row;                /* 侧栏在左、主区在右（原文件是 column） */
   -webkit-backdrop-filter: blur(34px) saturate(165%);
   backdrop-filter: blur(34px) saturate(165%);
   color: var(--text);
   transition: background .3s var(--ease);
 }
-.window.dark { background: var(--win-bg); }
+.window.dark { background: var(--custom-bg, var(--win-bg)); }
 
 /* ---------- 左侧导航（功能层玻璃） ---------- */
 .rail {
@@ -935,15 +945,16 @@ html:not(.dark) .rail { background: linear-gradient(180deg, rgba(255, 255, 255, 
   width: 3px; height: 16px; border-radius: 0 3px 3px 0; background: var(--blue); box-shadow: 0 0 10px rgba(10, 132, 255, .8); }
 
 .rail-foot { flex: none; padding-top: 8px; border-top: 1px solid var(--line); }
-.conn-pill { display: flex; align-items: center; gap: 8px; width: 100%; height: 42px; padding: 0 10px;
+.conn-pill { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 54px; padding: 6px 10px;
   border-radius: 12px; background: var(--fill); border: 1px solid var(--line); text-align: left;
   transition: background .18s var(--ease), border-color .18s var(--ease); }
 .conn-pill:hover { background: var(--fill-2); border-color: var(--line-2); }
 .conn-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ctrl); flex: none; }
 .window[data-on="1"] .conn-pill .dot { background: var(--blue); box-shadow: 0 0 0 3px rgba(10, 132, 255, .16), 0 0 12px rgba(10, 132, 255, .6); }
 .conn-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
-.conn-txt b { font-size: 11.5px; font-weight: 650; }
-.conn-txt span { font-size: 10px; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conn-txt b { font-size: 11.5px; font-weight: 650; line-height: 1.35; }
+.conn-txt .conn-sub { font-size: 9.5px; line-height: 1.3; color: var(--sub); opacity: .78; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conn-txt .conn-node { font-size: 10px; line-height: 1.3; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .conn-pill > .ico { width: 14px; height: 14px; color: var(--sub); }
 .window[data-on="1"] .conn-pill > .ico { color: var(--t-blue); }
 
@@ -1178,7 +1189,6 @@ html:not(.dark) .seg button.on { background: #fff; box-shadow: 0 1px 3px rgba(24
 .lb-left, .lb-right { color: var(--sub); }
 .node-card { background: var(--fill); border: 1px solid var(--line); border-radius: 12px; }
 .node-row { border-bottom: 1px solid var(--line); }
-.node-row:hover:not(.sel) { background: var(--fill-2); }
 .node-row.sel { background: var(--blue-tint); }
 .selbar { background: var(--blue); }
 .grouphead { height: 22px; }

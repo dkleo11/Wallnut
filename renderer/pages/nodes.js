@@ -2,7 +2,6 @@
 
 import { html, Icon, Chip, PageHead, Search, Tag, Lat, Empty, Spinner, useStore, useState } from '../ui.js';
 import { S, call, toast, runAllTest, cancelTest, delayMap } from '../store.js';
-import * as client from '../client.js';
 import { SubsPanel } from './subs.js';
 
 /* 兼容外壳顶栏的订阅入口；页面已合并为单一的「订阅与本地节点」 */
@@ -65,17 +64,6 @@ export default function Nodes() {
     return !best || d < best.delay ? { name: n.name, delay: d } : best;
   }, null);
 
-  const selectNode = async (n) => {
-    if (!S.core.running) return toast('mihomo 未运行，无法切换节点。请先在首页点击连接。', 'error', 5000);
-    try {
-      await client.selectProxy(mainGroup, n.name);
-      toast(`已把「${mainGroup}」切到 ${n.name}`, 'ok');
-      try { window.__wallnutDebug && window.__wallnutDebug.refresh && window.__wallnutDebug.refresh(); } catch (_) {}
-    } catch (err) {
-      toast('切换失败：' + err.message, 'error');
-    }
-  };
-
   const testOne = async (n) => {
     setTesting((t) => ({ ...t, [n.name]: true }));
     const r = await call('test:one', { name: n.name }, { silent: true });
@@ -136,7 +124,7 @@ export default function Nodes() {
                       ${g.nodes.map((n) => {
                         const d = dmap[n.name];
                         const selected = now === n.name;
-                        return html`<div key=${n.name} class=${'node-row' + (selected ? ' sel' : '')} onClick=${() => selectNode(n)} style="cursor:pointer">
+                        return html`<div key=${n.name} class=${'node-row' + (selected ? ' sel' : '')}>
                           ${selected ? html`<span class="selbar"></span>` : null}
                           <span class="flag-em">${regionFlags[n.region] || '🌐'}</span>
                           <span class=${'node-name' + (selected ? ' on' : '')}>${n.name}</span>
@@ -145,7 +133,7 @@ export default function Nodes() {
                             ${n.udp ? html`<${Tag} cls="udp">UDP</${Tag}>` : null}
                           </span>
                           <${Lat} ms=${d} />
-                          <button class="btn ghost sm" title="单独测速" onClick=${(e) => { e.stopPropagation(); testOne(n); }}>
+                          <button class="btn ghost sm" title="单独测速" onClick=${() => testOne(n)}>
                             ${testing[n.name] ? html`<${Spinner} />` : html`<${Icon} name="gauge" />`}
                           </button>
                         </div>`;

@@ -9,7 +9,7 @@ const fs = require('fs');
 const Store = require('./store').Store;
 const { CoreManager } = require('./core/manager');
 const { registerIpc, publicState, nodeList, regionSummary, updateDueSubscriptions } = require('./ipc');
-const { setSystemProxy } = require('./net/system-proxy');
+const { setSystemProxy, readProxyState } = require('./net/system-proxy');
 const { pickProxyPort } = require('./net/proxy-port');
 const { createCrashGuard } = require('./core/crash-guard');
 const { sleep } = require('./util');
@@ -390,8 +390,7 @@ function main() {
     });
     trayMgr = new TrayManager({
       store, core, rewrite, getWindow: () => win, showWindow,
-      quit: () => { quitting = true; app.quit(); },
-      onSystemProxyChange: () => { try { if (ipcBridge) ipcBridge.broadcastState(); } catch (_) {} }
+      quit: () => { quitting = true; app.quit(); }
     });
     trayMgr.init();
 
@@ -436,14 +435,17 @@ function main() {
     });
 
     // 自动启动内核和重写代理，系统代理始终指向最终生效的入口
-    if (store.get().settings.autoStartCore !== false) {
+    // 离屏 smoke / 自动化验证时绝不碰网络：不拉起内核、不启重写、不动系统代理，
+    // 否则测试副本会抢占正式实例的端口、TUN 适配器和系统代理注册表（曾导致主实例内核被顶掉后自动重启）。
+    if (isSmoke) console.log('[wallnut] smoke mode: skip core/rewrite/system-proxy side effects');
+    if (!isSmoke && store.get().settings.autoStartCore !== false) {
       const r = await core.start();
       if (!r.ok) {
         send('toast', { kind: 'error', message: '内核启动失败：' + (r.error || '未知错误') });
         notify({ title: 'Wallnut 内核启动失败', body: r.error || '请打开主界面查看日志' });
       }
     }
-    if (store.get().settings.rewriteEnabled) {
+    if (!isSmoke && store.get().settings.rewriteEnabled) {
       const r = await rewrite.start();
       if (!r.ok) send('toast', { kind: 'error', message: '重写引擎启动失败：' + (r.error || '未知错误') });
       // 重写只收得到系统代理过来的流量：启动时补开系统代理（TUN 保持不动）。
@@ -453,9 +455,16 @@ function main() {
         else send('toast', { kind: 'warn', message: '重写已启用，但内核未运行：未自动开启系统代理（重写没有上游）' });
       }
     }
-    if (store.get().settings.systemProxy) {
+    if (!isSmoke && store.get().settings.systemProxy) {
       // 与 ipc / 托盘共用同一套端口判断：重写在跑就指向重写端口。
       await setSystemProxy(true, { port: pickProxyPort({ store, core, rewrite }) });
+    } else if (!isSmoke) {
+      // 对账：settings 说系统代理没开，但注册表可能残留着上次异常退出（被强杀/崩溃，before-quit 没跑到）
+      // 时写的代理设置——那个端口可能已经没人监听，不清掉的话所有走系统代理的程序都会报代理错误。
+      try {
+        const cur = await readProxyState();
+        if (cur.enabled) await setSystemProxy(false, { port: store.get().settings.mixedPort });
+      } catch (_) {}
     }
 
     // 订阅自动更新巡检
@@ -472,7 +481,12 @@ function main() {
     quitting = true;
     e.preventDefault();
     try { if (subTimer) { clearInterval(subTimer); subTimer = null; } } catch (_) {}
-    try { await setSystemProxy(false, { port: store.get().settings.mixedPort }); } catch (_) {}
+    try {
+      await setSystemProxy(false, { port: store.get().settings.mixedPort });
+      // 退出时代理已经关掉，settings 也要同步置 false：否则下次启动会照着旧值把系统代理又开回来，
+      // 表现为「明明关了重写、重启后又变成系统代理接管」。
+      store.update((d) => { d.settings.systemProxy = false; });
+    } catch (_) {}
     try { if (rewrite) await rewrite.stop(); } catch (_) {}
     try { await core.stop(); } catch (_) {}
     try { trayMgr && trayMgr.destroy(); } catch (_) {}

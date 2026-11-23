@@ -62,6 +62,8 @@ function closeStreams() {
   clearTimeout(rejectTimer);
   sampleTraffic = createTrafficSampler();
   routeActivity = {};
+  S.routeHistory = [];
+  S.history = [];
   streams.forEach((s) => { try { s.close && s.close(); } catch (_) {} });
   streams = [];
   streamKey = '';
@@ -79,7 +81,6 @@ function connectStreams() {
   streams.push(client.openStream('/traffic', {
     onMessage: (m) => {
       S.traffic = m;
-      S.history = [...(S.history || []), { up: m.up, down: m.down, t: Date.now() }].slice(-90);
       tick();
     }
   }));
@@ -118,10 +119,20 @@ async function refreshRuntime(opts = {}) {
     const cn = await client.connections();
     if (sampler !== sampleTraffic || !S.core.running) return;
     const connections = cn.connections || [];
-    Object.assign(routeActivity, sampler(connections));
+    const sampled = sampler(connections);
+    Object.assign(routeActivity, sampled);
     S.runtime = { ...S.runtime, connections };
     S.connectionsDownloadTotal = cn.downloadTotal || 0;
     S.connectionsUploadTotal = cn.uploadTotal || 0;
+    const at = Date.now();
+    S.routeHistory = [
+      ...(S.routeHistory || []),
+      { t: at, proxy: sampled.proxyRate || 0, direct: sampled.directRate || 0, conns: sampled.conns || connections.length }
+    ].slice(-300);
+    S.history = [
+      ...(S.history || []),
+      { t: at, up: sampled.upRate || 0, down: sampled.downRate || 0 }
+    ].slice(-300);
     tick();
   } catch (err) {
     if (sampler === sampleTraffic) {
@@ -265,17 +276,23 @@ function StatusBar() {
 }
 
 /** 左下角连接状态：显示「订阅名 / 节点名」，订阅匹配不到时退回节点名 */
-function connectionLabel() {
-  if (!S.core.running) return '点击启动内核';
+function connectionInfo() {
+  if (!S.core.running) return { pending: true, text: '点击启动内核' };
   const target = (S.state && S.state.settings.defaultTarget) || '主策略';
   const proxies = (S.runtime && S.runtime.proxies && S.runtime.proxies.proxies) || {};
   const root = proxies[target] || {};
-  const name = root.now || target;
+  // 主策略可能指向地区组：逐层跟到真正的节点，否则只会显示组名（拿不到订阅信息）
+  let name = root.now || target;
+  const seen = new Set();
+  while (name && proxies[name] && proxies[name].now && proxies[name].now !== name && !seen.has(name)) {
+    seen.add(name);
+    name = proxies[name].now;
+  }
   const info = (S.nodes || []).find((n) => n.name === name);
-  if (!info) return name;
-  const sub = ((S.state && S.state.subscriptions) || []).find((s) => s.id === info.sourceId);
-  const source = sub ? sub.name : (info.sourceId === 'local' ? '本地节点' : (info.source || ''));
-  return source && source !== name ? `${source} / ${name}` : name;
+  const sub = info ? ((S.state && S.state.subscriptions) || []).find((x) => x.id === info.sourceId) : null;
+  const source = info ? (sub ? sub.name : (info.sourceId === 'local' ? '本地节点' : (info.source || ''))) : '';
+  const same = source === name;
+  return { pending: false, node: name, sub: same ? '' : source, text: source && !same ? `${source} / ${name}` : name };
 }
 
 function Rail() {
@@ -289,7 +306,7 @@ function Rail() {
   };
   const LEGACY_PAGE = { regions: 'groups', subs: 'nodes' };
   const pageId = LEGACY_PAGE[S.page] || S.page;
-  const node = connectionLabel();
+  const conn = connectionInfo();
 
   return html`<aside class=${'rail' + (collapsed ? ' collapsed' : '')}>
     <div class="rail-head">
@@ -317,7 +334,7 @@ function Rail() {
     </nav>
 
     <div class="rail-foot">
-      <button class="conn-pill" title=${S.core.running ? node + ' · 断开（停止内核）' : '连接（启动内核）'}
+      <button class="conn-pill" title=${conn.pending ? '连接（启动内核）' : conn.text + ' · 断开（停止内核）'}
         onClick=${async () => {
           if (S.core.running) { await call('core:stop'); toast('内核已停止', 'info'); }
           else { await call('core:start'); }
@@ -325,7 +342,9 @@ function Rail() {
         <span class="dot"></span>
         <span class="conn-txt">
           <b>${S.core.running ? '已连接' : '未连接'}</b>
-          <span>${node}</span>
+          ${conn.pending
+            ? html`<span class="conn-node">${conn.text}</span>`
+            : html`${conn.sub ? html`<span class="conn-sub">${conn.sub}</span>` : null}<span class="conn-node">${conn.node}</span>`}
         </span>
         <${Icon} name="power" cls="ico-14" />
       </button>
@@ -357,7 +376,7 @@ export default function App() {
     connectStreams();
     if (!S.core.running) return undefined;
     refreshRuntime();
-    const pid = setInterval(() => refreshRuntime({ connectionsOnly: true }), 1000);
+    const pid = setInterval(() => refreshRuntime({ connectionsOnly: true }), 200);
     const slowPid = setInterval(() => refreshRuntime(), 5000);
     return () => { clearInterval(pid); clearInterval(slowPid); };
   }, [S.booted, S.core.running, S.core.status]);

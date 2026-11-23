@@ -1,29 +1,45 @@
 'use strict';
 
-const { Tray, Menu, nativeImage, shell } = require('electron');
+const { Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
 const paths = require('./paths');
 const autostart = require('./autostart');
 const { notify } = require('./notify');
 const { tr } = require('./i18n');
-const { setSystemProxy, readProxyState } = require('./net/system-proxy');
-const { pickProxyPort } = require('./net/proxy-port');
+const { setSystemProxy } = require('./net/system-proxy');
 const { ControllerApi } = require('./core/api');
 
 const MODE_LABEL = { rule: '规则分流', global: '全部代理', direct: '全部直连' };
 
+/** 运行模式二级菜单左侧的三横线图标：颜色与首页 Windmill 保持一致
+ *  规则分流 = 红/蓝/橙，全部代理 = 全蓝，全部直连 = 全橙。16px + @2x 表示。 */
+const MODE_ICON_DATA = {
+  rule: { s1: 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAYUlEQVR4nGNgGPKAEV3ghI7qf0KaLK7chutjIlUzujomXCYT6wKKASO6QOz2kwS9sdjTHHsYxBKhGV0dEy6TiXUBxYARXeDOAmuC3lBJOIo9DO4QoRldHYoByCYT64KBBwBoDCQQWYUd+AAAAABJRU5ErkJggg==', s2: 'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAjklEQVR4nGNgGAWjYKQDRkIKTuio/qfUEosrt3Haw0RrywmZw8QwwIBpUDvAAk/ckQKoZc4ooAlgJKQgdvtJirPiYk9z8sqBWCpYTsgcJoYBBkyD2gGL8cQdKYBa5owCmgBGQgruLLCmOCuqJBwlrxy4QwXLCZnDxDDAgGlQO0AFT9yRAqhlzigYBQy0AABLGSQcGUya/AAAAABJRU5ErkJggg==' },
+  global: { s1: 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAANUlEQVR4nGNgGPKAEV0gdvvJ/4Q0LfY0h+tjIlUzujomXCYT6wKKASO6wGgYMIzEMGCgFAAA/8gkELWixvUAAAAASUVORK5CYII=', s2: 'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAX0lEQVR4nGNgGAWjYKQDRkIKYref/E+pJYs9zXHaw0RrywmZw8QwwIBpUDtgMZ64IwVQy5xRQBPASEjBaDlAa8A0qB2weLQcGAmAkZCC0XKA1oBpUDtg8Wg5MApGAgAATOokHIYSgToAAAAASUVORK5CYII=' },
+  direct: { s1: 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAANUlEQVR4nGNgGPKAEV3gzgLr/4Q0qSQchetjIlUzujomXCYT6wKKASO6wGgYMIzEMGCgFAAAtdwkEFlOAD8AAAAASUVORK5CYII=', s2: 'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAXklEQVR4nGNgGAWjYKQDRkIK7iyw/k+pJSoJR3Haw0RrywmZw8QwwIBpUDtABU/ckQKoZc4ooAlgJKRgtBygNWAa1A5QGS0HRgJgJKRgtBygNWAa1A5QGS0HRsFIAADV2CQct7T5nQAAAABJRU5ErkJggg==' }
+};
+
+const modeIconCache = Object.create(null);
+function modeIcon(mode) {
+  const key = MODE_ICON_DATA[mode] ? mode : 'rule';
+  if (modeIconCache[key]) return modeIconCache[key];
+  const d = MODE_ICON_DATA[key];
+  const img = nativeImage.createFromDataURL('data:image/png;base64,' + d.s1);
+  img.addRepresentation({ scaleFactor: 2, dataURL: 'data:image/png;base64,' + d.s2 });
+  modeIconCache[key] = img;
+  return img;
+}
+
 class TrayManager {
-  constructor({ store, core, rewrite, getWindow, showWindow, quit, onSystemProxyChange }) {
+  constructor({ store, core, rewrite, getWindow, showWindow, quit }) {
     this.store = store;
     this.core = core;
     this.rewrite = rewrite;
-    this.onSystemProxyChange = onSystemProxyChange;
     this.getWindow = getWindow;
     this.showWindow = showWindow;
     this.quit = quit;
     this.tray = null;
     this.now = null;
-    this.sysProxy = false;
     this.timer = null;
     this.refreshing = false;
   }
@@ -79,7 +95,6 @@ class TrayManager {
     this.refreshing = true;
     try {
       await this.currentProxy();
-      try { this.sysProxy = (await readProxyState()).enabled; } catch (_) {}
       this.build();
     } finally {
       this.refreshing = false;
@@ -105,17 +120,15 @@ class TrayManager {
         label: tr('运行模式'),
         submenu: ['rule', 'global', 'direct'].map((m) => ({
           label: tr(MODE_LABEL[m]),
-          type: 'radio',
-          checked: mode === m,
+          type: 'normal',
+          icon: modeIcon(m),
           click: () => this.setMode(m)
         }))
       },
-      { label: tr('系统代理'), type: 'checkbox', checked: this.sysProxy, click: () => this.toggleSystemProxy() },
       { type: 'separator' },
       { label: `${tr('当前节点')}：${this.now || tr('未运行')}`, enabled: false },
       { label: tr('打开节点选择'), click: () => this.openPage('nodes') },
       { label: tr('地区测速'), click: () => this.openPage('groups') },
-      { label: tr('规则与策略'), click: () => this.openPage('rules') },
       { type: 'separator' },
       {
         label: tr('开机自启动'),
@@ -123,7 +136,6 @@ class TrayManager {
         checked: !!st.launchAtLogin,
         click: (item) => this.toggleAutostart(item.checked)
       },
-      { label: tr('打开数据目录'), click: () => shell.openPath(paths.dataDir()) },
       { label: tr('退出') + ' Wallnut', click: () => this.quit() }
     ];
 
@@ -168,18 +180,6 @@ class TrayManager {
       try { await this.core.apply(); } catch (_) {}
     }
     notify({ title: 'Wallnut', body: '运行模式：' + MODE_LABEL[mode] });
-    this.refresh(true);
-  }
-
-  async toggleSystemProxy() {
-    const enable = !this.sysProxy;
-    // 端口必须与 ipc 共用同一套判断：重写开着时要指向重写端口，否则重写规则永远不会命中。
-    const port = pickProxyPort({ store: this.store, core: this.core, rewrite: this.rewrite });
-    const r = await setSystemProxy(enable, { port });
-    if (r.ok) this.store.update((d) => { d.settings.systemProxy = enable; });
-    this.sysProxy = r.enabled;
-    notify({ title: 'Wallnut', body: !r.ok ? '系统代理设置失败' : (enable ? `系统代理已接管（127.0.0.1:${port}）` : '系统代理已关闭') });
-    try { if (this.onSystemProxyChange) this.onSystemProxyChange(); } catch (_) {}
     this.refresh(true);
   }
 

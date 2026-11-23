@@ -152,22 +152,66 @@ function registerIpc({ store, core, rewrite, ca, getWindow, showWindow, quitApp,
       const r = autostart.apply(patch.launchAtLogin === true);
       if (!r.ok) return { ok: false, error: '开机自启动设置失败：' + (r.error || '未知错误') };
     }
-    // 重写引擎只收得到「系统代理指向它」的流量：开重写就把系统代理自动指过来（TUN 保持不动），
-    // 关重写就把系统代理一起关掉——否则系统代理会停在一个已经关掉的端口上，所有走系统代理的程序直接失败。
-    let proxyChange = null;
+    // 重写引擎只收得到「系统代理指向它」的流量。顺序很关键：
+    //   开：先拉引擎（8890 开始监听）再把系统代理指过来；
+    //   关：先把系统代理从 8890 挪回 mihomo 的混合端口，再停引擎。
+    // 反过来的话会有「8890 已关闭、注册表还指着它」的窗口，浏览器正好此时发请求就会报代理错误——
+    // 系统代理关闭也要走这一步（ProxyEnable=0 也是"先挪后停"）。
+    let proxyChange = null, tunAutoEnabled = false, tunNeedsAdminFlag = false;
+    const mixedPortNow = () => {
+      try { return Number(core.controllerCoords().mixedPort) || Number(store.get().settings.mixedPort) || 7890; }
+      catch (_) { return Number(store.get().settings.mixedPort) || 7890; }
+    };
     if (rewrite && patch && ['rewriteEnabled', 'rewritePort'].some((k) => Object.prototype.hasOwnProperty.call(patch, k))) {
-      const r = store.get().settings.rewriteEnabled ? await rewrite.start() : await rewrite.stop();
-      if (!r.ok) return { ok: false, error: '重写引擎：' + (r.error || '启动失败') };
       if (store.get().settings.rewriteEnabled) {
+        const r = await rewrite.start();
+        if (!r.ok) {
+          // 引擎没起来（端口被占/权限等）：系统代理若还指着重写端口，立刻挪回混合端口，
+          // 否则整台机器的系统代理都指向一个没有监听者的端口，所有走系统代理的程序都会报代理错误。
+          if (store.get().settings.systemProxy) {
+            try { await setSystemProxy(true, { port: mixedPortNow() }); } catch (_) {}
+          }
+          return { ok: false, error: '重写引擎：' + (r.error || '启动失败') };
+        }
+        const port = effectiveProxyPort();
         if (!store.get().settings.systemProxy) {
-          const sp = await setSystemProxy(true, { port: effectiveProxyPort() });
+          const sp = await setSystemProxy(true, { port });
           if (sp.ok) { store.update((d) => { d.settings.systemProxy = true; }); proxyChange = 'on'; }
         } else {
-          await setSystemProxy(true, { port: effectiveProxyPort() });
+          await setSystemProxy(true, { port });
         }
-      } else if (store.get().settings.systemProxy) {
-        const sp = await setSystemProxy(false, { port: store.get().settings.mixedPort });
-        if (sp.ok) { store.update((d) => { d.settings.systemProxy = false; }); proxyChange = 'off'; }
+      } else {
+        // 关重写 → 关闭系统代理，交回 TUN。顺序：
+        //   1) 先关系统代理（此刻 8890 还在监听，不会出现指向死端口的窗口）
+        //   2) 停重写引擎
+        //   3) TUN 未启用就自动开启 —— 放在最后，因为改 TUN 要重启内核，
+        //      此时系统代理已经关掉，重启期间的请求走直连，不会弹出"代理错误"。
+        let proxyOff = false;
+        if (store.get().settings.systemProxy) {
+          const sp = await setSystemProxy(false, { port: mixedPortNow() });
+          if (sp.ok) { store.update((d) => { d.settings.systemProxy = false; }); proxyOff = true; }
+        }
+        const r = await rewrite.stop();
+        if (!r.ok) return { ok: false, error: '重写引擎：' + (r.error || '停止失败') };
+        if (proxyOff) proxyChange = 'off';
+
+        let tunAuto = false, tunNeedsAdmin = false;
+        if (!store.get().settings.tunEnabled) {
+          const elevated = await isElevated();
+          if (elevated) {
+            store.update((d) => { d.settings.tunEnabled = true; });
+            prev.tunEnabled = true;                       // 避免末尾 needRestart 再重复 apply 一次
+            if (core.snapshot().running) {
+              const applied = await core.apply();
+              if (applied && applied.reloaded === false) { await core.restart(); refreshApi(); }
+            }
+            tunAuto = true;
+          } else {
+            tunNeedsAdmin = true;
+          }
+        }
+        if (tunAuto) tunAutoEnabled = true;
+        if (tunNeedsAdmin) tunNeedsAdminFlag = true;
       }
       await broadcastRewrite();
       broadcastState();
@@ -176,9 +220,9 @@ function registerIpc({ store, core, rewrite, ca, getWindow, showWindow, quitApp,
       .some((k) => JSON.stringify(prev[k]) !== JSON.stringify(store.get().settings[k]));
     if (needRestart && core.snapshot().running) {
       const r = await core.apply();
-      return { ok: true, applied: r, proxyChange };
+      return { ok: true, applied: r, proxyChange, tunAutoEnabled, tunNeedsAdmin: tunNeedsAdminFlag };
     }
-    return { ok: true, proxyChange };
+    return { ok: true, proxyChange, tunAutoEnabled, tunNeedsAdmin: tunNeedsAdminFlag };
   });
 
   ipcMain.handle('app:openExternal', async (_e, url) => {
@@ -228,8 +272,9 @@ function registerIpc({ store, core, rewrite, ca, getWindow, showWindow, quitApp,
   });
 
   ipcMain.handle('app:theme', async (_e, theme) => {
-    nativeTheme.themeSource = ['light', 'dark', 'system'].includes(theme) ? theme : 'system';
-    store.update((d) => { d.ui = { ...(d.ui || {}), theme }; });
+    const t = ['light', 'dark', 'system'].includes(theme) ? theme : 'system';
+    nativeTheme.themeSource = t;
+    store.update((d) => { d.ui = { ...(d.ui || {}), theme: t }; });
     return { ok: true, dark: nativeTheme.shouldUseDarkColors };
   });
 
@@ -648,6 +693,13 @@ function registerIpc({ store, core, rewrite, ca, getWindow, showWindow, quitApp,
     if (!store.get().settings.rewriteEnabled) store.update((d) => { d.settings.rewriteEnabled = true; });
     const r = await rewrite.start();
     let proxyChange = null;
+    if (!r.ok && store.get().settings.systemProxy) {
+      // 引擎没起来：把系统代理挪回混合端口，避免指着没有监听者的重写端口
+      let port;
+      try { port = Number(core.controllerCoords().mixedPort) || Number(store.get().settings.mixedPort) || 7890; }
+      catch (_) { port = Number(store.get().settings.mixedPort) || 7890; }
+      try { await setSystemProxy(true, { port }); } catch (_) {}
+    }
     if (r.ok) {
       if (!store.get().settings.systemProxy) {
         const sp = await setSystemProxy(true, { port: effectiveProxyPort() });
@@ -661,12 +713,16 @@ function registerIpc({ store, core, rewrite, ca, getWindow, showWindow, quitApp,
     return { ...r, proxyChange };
   });
   ipcMain.handle('rewrite:stop', async () => {
-    const r = await rewrite.stop();
     let proxyChange = null;
+    // 先关系统代理（此时引擎仍在监听，不会出现死端口窗口），再停引擎。
     if (store.get().settings.systemProxy) {
-      const sp = await setSystemProxy(false, { port: store.get().settings.mixedPort });
+      let port;
+      try { port = Number(core.controllerCoords().mixedPort) || Number(store.get().settings.mixedPort) || 7890; }
+      catch (_) { port = Number(store.get().settings.mixedPort) || 7890; }
+      const sp = await setSystemProxy(false, { port });
       if (sp.ok) { store.update((d) => { d.settings.systemProxy = false; }); proxyChange = 'off'; }
     }
+    const r = await rewrite.stop();
     await broadcastRewrite();
     broadcastState();
     return { ...r, proxyChange };

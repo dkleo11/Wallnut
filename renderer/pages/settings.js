@@ -1,7 +1,7 @@
 /* 设置页：通用 / 网络接管 / 内核 / 测速订阅 / DNS / 关于（对应原型画板 05 的两列卡片语言） */
 
 import { html, Icon, Button, Switch, Seg, PageHead, Tag, Input, Modal, Spinner, fmtDuration, timeAgo, useStore, useState, useEffect } from '../ui.js';
-import { S, call, invoke, toast, saveSettings, setTheme } from '../store.js';
+import { S, call, invoke, toast, saveSettings, setTheme, refreshSys } from '../store.js';
 import { LANGUAGES, setLanguage } from '../i18n.js';
 
 function Row({ label, note, children }) {
@@ -57,11 +57,14 @@ export default function Settings() {
   const st = S.state.settings;
   const dns = st.dns || {};
   const [validate, setValidate] = useState(false);
-  const [showDns, setShowDns] = useState(false);
+  const [showDns, setShowDns] = useState(true);  // 默认展开，仍可点标题收起
   const closeAction = st.closeAction || (st.closeToTray === false ? 'quit' : 'tray');
   const [nsText, setNsText] = useState((dns.nameservers || []).join('\n'));
   const [fbText, setFbText] = useState((dns.fallback || []).join('\n'));
   const [hostsText, setHostsText] = useState((dns.hosts || []).map((h) => `${h.domain} ${h.ip}`).join('\n'));
+
+  // 系统代理卡片读注册表实况：settings 里的值可能因异常退出/外部修改而与真实状态不一致
+  useEffect(() => { refreshSys(); }, []);
 
   const set = (patch) => saveSettings(patch);
   const setDns = (patch) => saveSettings({ dns: { ...dns, ...patch } }, { silent: true });
@@ -97,14 +100,15 @@ export default function Settings() {
                   options=${[{ v: 'light', label: '浅色' }, { v: 'dark', label: '深色' }, { v: 'system', label: '跟随' }]}
                   onChange=${async (theme) => {
                     await setTheme(theme);
-                    toast('外观已切换', 'ok');
+                    toast(theme === 'system' ? '已跟随系统外观' : '外观已切换', 'ok');
                   }} />
               </div>
             </div>
+
             <${Row} label="随 Wallnut 启动内核" note="启动应用时自动拉起 mihomo">
               <${Switch} on=${st.autoStartCore !== false} onChange=${(v) => set({ autoStartCore: v })} />
             </${Row}>
-            <${Row} label="开机自启动" note=${S.portable ? "登录后隐藏启动；便携版仅使用用户注册表" : "登录后最小化到托盘启动"}>
+            <${Row} label="开机自启动" note="开机后自动启动">
               <${Switch} on=${!!st.launchAtLogin} onChange=${async (v) => {
                 const r = await call('app:autostart', { enable: v });
                 if (r && r.ok) toast(v ? '已开启开机自启动' : '已关闭开机自启动', 'ok');
@@ -142,9 +146,10 @@ export default function Settings() {
             <${Row} label="IPv6" note="内核与 DNS 同时生效">
               <${Switch} on=${!!st.ipv6} onChange=${(v) => set({ ipv6: v })} />
             </${Row}>
-            <${Row} label="系统代理" note=${st.systemProxy ? '已写入注册表并接管 WinINet' : '未接管'}>
-              <${Switch} on=${!!st.systemProxy} onChange=${async (v) => {
+            <${Row} label="系统代理" note=${S.sys.systemProxy.enabled ? '已写入注册表并接管 WinINet' : '未接管'}>
+              <${Switch} on=${!!S.sys.systemProxy.enabled} onChange=${async (v) => {
                 const r = await call('net:systemProxy', { enable: v });
+                await refreshSys();
                 if (r && r.ok) toast(v ? '系统代理已开启' : '系统代理已关闭', 'ok');
               }} />
             </${Row}>
@@ -243,9 +248,7 @@ export default function Settings() {
             <${Row} label="配置文件" note=${S.paths.config}>
               <button class="btn sm" onClick=${() => setValidate(true)}><${Icon} name="list" />查看</button>
             </${Row}>
-            <${Row} label="内核二进制" note=${S.paths.core}>
-              <button class="btn sm" onClick=${() => call('app:openDataDir')}><${Icon} name="folder" />数据目录</button>
-            </${Row}>
+            <${Row} label="内核二进制" note=${S.paths.core} />
           </div>
         </div>
 
@@ -269,7 +272,7 @@ export default function Settings() {
         <div class="set-group">
           <div class="set-label">关于</div>
           <div class="set-card">
-            <div class="about-row"><span>Wallnut</span><span class="about-val">0.4.8</span></div>
+            <div class="about-row"><span>Wallnut</span><span class="about-val">0.5.0</span></div>
             <div class="about-row"><span>内核</span><span class="about-val">${S.core.version || 'mihomo'}</span></div>
             <div class="about-row"><span>许可证</span><span class="about-val">GPL-3.0</span></div>
             <div class="about-row"><span>项目地址</span>
@@ -281,6 +284,8 @@ export default function Settings() {
           </div>
         </div>
       </div>
+
+
     </div>
 
     ${validate ? html`<${ValidateModal} onClose=${() => setValidate(false)} />` : null}

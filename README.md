@@ -1,18 +1,16 @@
 # Wallnut
 
-**简体中文** · [繁體中文](#繁體中文) · [English](#english) · [日本語](#日本語) · [한국어](#한국어)
+**简体中文** · [English](README.en.md)
 
-![version](https://img.shields.io/badge/version-0.4.8-0A84FF) ![platform](https://img.shields.io/badge/platform-Windows%2010%2F11-34C759) ![core](https://img.shields.io/badge/core-mihomo-5E5CE6)
+![version](https://img.shields.io/badge/version-0.5.0-0A84FF) ![platform](https://img.shields.io/badge/platform-Windows%2010%2F11-34C759) ![core](https://img.shields.io/badge/core-mihomo-5E5CE6)
 
 ---
 
-## 简体中文
-
 **Wallnut** 是一个面向 Windows 的桌面代理客户端：Electron 外壳 + 内置 [mihomo](https://github.com/MetaCubeX/mihomo) 内核，便携运行、无需安装。
 
-**名字由来**：Wallnut 读作「wall-nut」，谐音 **wall-not**；同时也是对《植物大战僵尸》里**坚果墙**的致敬——站在最前面挨打，默默把后面的一切挡住。中文名就叫「坚果墙」。
+**名字由来**：Wallnut 读作「wall-nut」，谐音 **wall-not**；同时也是对《植物大战僵尸》里**坚果墙**的致敬——站在最前面挨打。中文名就叫「坚果墙」。
 
-### 功能
+## 功能
 
 - **订阅管理**：添加、编辑（名称 / 地址 / 更新间隔）、更新、删除订阅；支持 Clash/mihomo YAML、Surge conf、分享链接、base64 与粘贴导入
 - **节点与地区**：按国家自动聚合地区组，跨订阅一起测速找最快节点，支持单独测速与按延迟排序
@@ -25,18 +23,18 @@
 - **桌面体验**：托盘菜单、开机自启、浅色/深色/跟随系统、关闭到托盘
 - **多语言**：简体中文、繁體中文、日本語、한국어、English、Français、Español
 
-### 下载（普通用户）
+## 下载（普通用户）
 
 到仓库的 **Releases** 页面下载最新便携包：
 
-1. 下载 `Wallnut-v0.4.8-portable-win-x64.zip`
+1. 下载 `Wallnut-v0.5.0-portable-win-x64.zip`
 2. 解压到任意目录（不需要安装）
 3. 运行 `Wallnut.exe`
 4. 在界面里添加自己的订阅
 
 首次启动会在程序同级创建 `data/` 与 `temp/`，配置、状态、日志与证书都保存在本机。
 
-### 从源码运行（开发者）
+## 从源码运行（开发者）
 
 环境要求：Windows 10/11、Node.js 18+。
 
@@ -68,7 +66,7 @@ npm install --no-save electron
 npx electron .
 ```
 
-### 目录结构
+## 目录结构
 
 ```
 electron/           主进程（main / ipc / store / tray / 自动启动）
@@ -85,162 +83,69 @@ locales.json        界面文案（7 种语言）
 package.json
 ```
 
-### 更新日志
+## 更新记录
 
-见 [CHANGELOG.md](CHANGELOG.md)。当前版本 **0.4.8**。
+### 0.5.0 — 2026-11-23
 
-### 说明
+**新增**
+
+- 左下角连接状态显示「订阅 / 节点」：主策略指向地区组时逐层解析到真实节点，再关联所属订阅，两行显示订阅名与节点名
+- 设置页 DNS 分组默认展开，仍可点分组标题收起
+
+**改进**
+
+- 「开机自启动」说明简化为「开机后自动启动」，不再显示便携版相关描述
+
+**修复**
+
+- 内核 TUN 适配器改用独立名称 `Wallnut`，不再与 Clash Verge 系统服务的同名 `Meta` 适配器冲突（曾导致内核被外部终止、崩溃后重启超时）
+- 离屏验证模式不再拉起内核、启动重写或改写系统代理，避免测试实例抢占正式实例的端口、TUN 适配器与系统代理注册表
+
+**移除**
+
+- 设置页「开机自启动」中的便携版说明文案
+
+### 0.4.8 — 2026-11-23
+
+**新增**
+
+- 编辑订阅：可修改名称、订阅地址、自动更新间隔、跳过证书校验与启用状态；改地址后自动重新下载并重建节点与策略组
+- 多语言界面：简体中文、繁體中文、日本語、한국어、English、Français、Español 七种界面语言
+- 地区组手动/自动切换：手动选择过节点后仍可切回 url-test 自动选优
+- 线上重写规则集：可添加 http(s) 规则集链接，按间隔自动拉取并与本地重写规则合并（本地优先）
+- 左下角连接状态显示「订阅名 / 节点名」，未运行时显示启动提示
+
+**改进**
+
+- 新建自定义策略组弹窗、设置页语言下拉改为毛玻璃质感
+- 日志页卡片铺满内容区，筛选条与操作按钮完整保留
+- 浅色模式整体提亮，降低长时间阅读的疲劳感
+- 订阅卡片显示格式、节点数、更新于、更新间隔与最近错误
+
+**修复**
+
+- 浅色模式下主按钮被通用按钮样式覆盖，出现白底白字
+- 地区组切换为手动选择后无法恢复自动选择
+- 首页「内存占用」恒为等待内核数据，已移除该指标
+
+**移除**
+
+- 首页内存占用卡片
+- 设置页通知测试按钮
+- 节点行内的单节点编辑入口（改为订阅级编辑）
+
+### 0.4.0 — 2026-11-22
+
+- 首个源码发布版本：Electron + 内置 mihomo 内核的 Windows 便携客户端
+- 订阅管理、地区聚合、策略组、分流规则、重写与 MITM、系统代理与 TUN、托盘与开机自启
+- 项目更名为 **Wallnut**，仓库迁移至 `dkleo11/Wallnut`
+
+### 0.3.0 — 2026-11-21
+
+- 项目更名为 Wallnut，界面文案与托盘、通知标题同步更新
+- 策略组面板精简：默认显示 3 个节点成员，移除冗余的手动策略与 300 秒测速提示
+- 节点页与订阅页合并为「订阅与本地节点」，去除重复的节点列表
+
+## 说明
 
 请遵守所在地区的法律法规，仅将本项目用于合法的网络访问用途。
-
----
-
-## 繁體中文
-
-**Wallnut** 是給 Windows 的桌面代理客戶端：Electron 外殼 + 內建 [mihomo](https://github.com/MetaCubeX/mihomo) 核心，可攜執行、免安裝。
-
-**名稱由來**：Wallnut 讀作「wall-nut」，諧音 **wall-not**；同時致敬《植物大戰殭屍》裡的**堅果牆**——站在最前面擋住攻擊，讓後面的一切安然無恙。中文名就叫「堅果牆」。
-
-### 功能
-
-- **訂閱管理**：新增、編輯（名稱 / 位址 / 更新間隔）、更新、刪除訂閱；支援 Clash/mihomo YAML、Surge conf、分享連結、base64 與貼上匯入
-- **節點與地區**：依國家自動彙整地區組，跨訂閱一起測速找最快節點，可單獨測速與依延遲排序
-- **策略組**：地區組 + 自訂組，select / url-test / fallback，可直接在卡片切換
-- **分流規則**：本機規則排序與驗證、遠端規則集（依間隔自動更新）
-- **重寫**：本機重寫規則、線上重寫規則集、302、請求/回應標頭、回應內容替換、白名單 MITM
-- **核心代管**：單一實例、健康檢查、崩潰自動重啟、設定驗證、日誌環形緩衝
-- **網路接管**：系統代理、TUN、DNS 與 fake-ip、清除 DNS 快取
-- **即時面板**：流量曲線、活躍連線、規則命中、核心記憶體與版本
-- **桌面體驗**：系統匣、開機自動啟動、淺色/深色/跟隨系統
-- **多語言**：繁體中文、简体中文、日本語、한국어、English、Français、Español
-
-### 下載
-
-到 **Releases** 下載 `Wallnut-v0.4.8-portable-win-x64.zip`，解壓後執行 `Wallnut.exe`，加入自己的訂閱即可。
-
-### 從原始碼執行
-
-```bash
-git clone https://github.com/dkleo11/Wallnut.git
-cd Wallnut && npm install && npm install --no-save electron
-```
-
-自備 `resources/core/mihomo.exe` 與 `resources/geo/*`（來源同上表），然後 `npx electron .`。
-
-### 更新日誌
-
-見 [CHANGELOG.md](CHANGELOG.md)。目前版本 **0.4.8**。
-
----
-
-## English
-
-**Wallnut** is a desktop proxy client for Windows: an Electron shell with a bundled [mihomo](https://github.com/MetaCubeX/mihomo) core. Portable, no installation required.
-
-**Name**: "Wallnut" reads as *wall-nut*, a pun on **wall-not** — and a nod to the **wall-nut** in *Plants vs. Zombies*: the one that stands in front and takes the hits so everything behind it stays safe.
-
-### Features
-
-- **Subscriptions**: add, edit (name / URL / refresh interval), refresh and remove; Clash/mihomo YAML, Surge conf, share links, base64 and paste import
-- **Nodes & regions**: nodes grouped by country, cross-subscription speed tests to find the fastest one, per-node tests and latency sorting
-- **Policy groups**: region groups plus custom groups with select / url-test / fallback, switchable straight from the card
-- **Routing**: local rule list with ordering and validation, remote rule sets with automatic updates
-- **Rewrite**: local rewrite rules, remote rewrite rule sets, 302 redirects, request/response headers, response body replacement, whitelist-based MITM
-- **Core supervision**: single-instance management, health checks, crash restart, config validation, ring-buffered logs
-- **Network takeover**: system proxy, TUN mode, DNS and fake-ip, DNS cache flush
-- **Live dashboards**: traffic charts, active connections, rule hits, core memory and version
-- **Desktop**: tray menu, launch at login, light / dark / system theme, close-to-tray
-- **Languages**: English, 简体中文, 繁體中文, 日本語, 한국어, Français, Español
-
-### Download
-
-Grab `Wallnut-v0.4.8-portable-win-x64.zip` from **Releases**, unzip anywhere, run `Wallnut.exe`, then add your own subscription.
-
-### Run from source
-
-```bash
-git clone https://github.com/dkleo11/Wallnut.git
-cd Wallnut && npm install && npm install --no-save electron
-```
-
-Supply `resources/core/mihomo.exe` and `resources/geo/*` (see the table above), then `npx electron .`.
-
-### Changelog
-
-See [CHANGELOG.md](CHANGELOG.md). Current version **0.4.8**.
-
----
-
-## 日本語
-
-**Wallnut** は Windows 向けのデスクトッププロキシクライアントです。Electron のシェルに [mihomo](https://github.com/MetaCubeX/mihomo) コアを内蔵し、インストール不要のポータブル構成で動作します。
-
-**名前の由来**：Wallnut は「wall-nut（ウォールナット）」と読み、**wall-not** に通じます。同時に『Plants vs. Zombies』の**ウォールナット**（クルミの壁）へのオマージュでもあります。前線で攻撃を受け止める、あの壁です。
-
-### 機能
-
-- **サブスクリプション**：追加・編集（名前 / URL / 更新間隔）・更新・削除。Clash/mihomo YAML、Surge conf、共有リンク、base64、貼り付けインポートに対応
-- **ノードと地域**：国ごとに自動グルーピング、サブスクリプションをまたいだ速度テストで最速ノードを選択
-- **ポリシーグループ**：地域グループ + カスタムグループ、select / url-test / fallback
-- **ルーティング**：ローカルルールの並べ替えと検証、リモートルールセットの自動更新
-- **リライト**：ローカル/リモートのリライトルール、302、リクエスト・レスポンスヘッダー、レスポンスボディ置換、ホワイトリスト方式の MITM
-- **コア管理**：単一インスタンス、ヘルスチェック、クラッシュ時の自動再起動、設定検証、リングバッファログ
-- **ネットワーク**：システムプロキシ、TUN モード、DNS と fake-ip、DNS キャッシュ削除
-- **ライブ表示**：トラフィックグラフ、アクティブ接続、ルールヒット、メモリとバージョン
-- **デスクトップ**：トレイ、ログイン時起動、ライト/ダーク/システムテーマ
-- **言語**：日本語、简体中文、繁體中文、한국어、English、Français、Español
-
-### ダウンロード
-
-**Releases** から `Wallnut-v0.4.8-portable-win-x64.zip` を取得し、任意のフォルダに展開して `Wallnut.exe` を実行してください。
-
-### ソースから実行
-
-```bash
-git clone https://github.com/dkleo11/Wallnut.git
-cd Wallnut && npm install && npm install --no-save electron
-```
-
-`resources/core/mihomo.exe` と `resources/geo/*` を用意したうえで `npx electron .` を実行します。
-
-### 変更履歴
-
-[CHANGELOG.md](CHANGELOG.md) を参照。現在のバージョンは **0.4.8** です。
-
----
-
-## 한국어
-
-**Wallnut**은 Windows용 데스크톱 프록시 클라이언트입니다. Electron 셸에 [mihomo](https://github.com/MetaCubeX/mihomo) 코어를 내장했고, 설치 없이 포터블로 실행됩니다.
-
-**이름의 유래**：Wallnut은 'wall-nut'으로 읽으며 **wall-not**과 발음이 통합니다. 동시에 *Plants vs. Zombies*의 **월넛**(호두 벽)에 대한 오마주입니다. 앞에서 공격을 막아 주는 그 벽입니다.
-
-### 주요 기능
-
-- **구독 관리**：추가, 편집(이름 / 주소 / 갱신 주기), 갱신, 삭제. Clash/mihomo YAML, Surge conf, 공유 링크, base64, 붙여넣기 가져오기 지원
-- **노드와 지역**：국가별 자동 그룹화, 구독을 넘나드는 속도 측정으로 가장 빠른 노드 선택
-- **정책 그룹**：지역 그룹 + 사용자 그룹, select / url-test / fallback
-- **라우팅**：로컬 규칙 정렬·검증, 원격 규칙 세트 자동 갱신
-- **리라이트**：로컬/원격 리라이트 규칙, 302, 요청·응답 헤더, 응답 본문 치환, 화이트리스트 MITM
-- **코어 관리**：단일 인스턴스, 상태 점검, 비정상 종료 시 자동 재시작, 설정 검증, 링 버퍼 로그
-- **네트워크**：시스템 프록시, TUN 모드, DNS와 fake-ip, DNS 캐시 비우기
-- **실시간 패널**：트래픽 그래프, 활성 연결, 규칙 적중, 메모리와 버전
-- **데스크톱**：트레이, 로그인 시 자동 실행, 라이트/다크/시스템 테마
-- **언어**：한국어, 简体中文, 繁體中文, 日本語, English, Français, Español
-
-### 다운로드
-
-**Releases**에서 `Wallnut-v0.4.8-portable-win-x64.zip`을 받아 아무 폴더에 압축을 풀고 `Wallnut.exe`를 실행한 뒤 구독을 추가하세요.
-
-### 소스에서 실행
-
-```bash
-git clone https://github.com/dkleo11/Wallnut.git
-cd Wallnut && npm install && npm install --no-save electron
-```
-
-`resources/core/mihomo.exe`와 `resources/geo/*`를 준비한 다음 `npx electron .`을 실행합니다.
-
-### 변경 내역
-
-[CHANGELOG.md](CHANGELOG.md) 참고. 현재 버전은 **0.4.8**입니다.

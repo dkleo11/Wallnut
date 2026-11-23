@@ -19,6 +19,7 @@ export const S = {
   paths: {},
   traffic: { up: 0, down: 0, upTotal: 0, downTotal: 0 },
   history: [],              // [{up,down,t}]
+  routeHistory: [],          // [{proxy,direct,conns,t}] 最近 60 秒，首页双轴图
   logs: [],                 // [{t,stream,line}]
   uiLogs: [],               // 内核 WS /logs
   test: null,               // {scope,regionId,total,done,results[],summary,running}
@@ -64,6 +65,17 @@ export function toast(message, kind = 'info', ttl = 3000) {
 
 export function invoke(channel, payload) {
   return window.wallnut.invoke(channel, payload);
+}
+
+/** 从注册表刷新系统代理实况：settings.systemProxy 可能与真实状态不同步（异常退出/外部修改），UI 以实况为准 */
+export async function refreshSys() {
+  try {
+    const r = await invoke('net:status');
+    if (r && r.systemProxy) {
+      set({ sys: { systemProxy: { enabled: !!r.systemProxy.enabled, server: r.systemProxy.server || '' }, elevated: !!r.elevated } });
+    }
+    return r;
+  } catch (_) { return null; }
 }
 
 /** 带上错误提示的调用封装 */
@@ -123,7 +135,7 @@ export async function boot() {
       test: data.lastTest ? { ...data.lastTest, running: false } : null,
       error: null
     });
-    applyTheme(data.theme);
+    applyTheme((data.state && data.state.ui && data.state.ui.theme) || data.theme, data.state && data.state.ui, data.theme === 'dark');
     syncProtectedStrings(data);
     syncUiLanguage(data.state);
     window.__wallnutDebug = { S, set, setPage, setTheme, boot, tr };
@@ -140,14 +152,31 @@ export function applyTheme(theme) {
   S.theme = dark ? 'dark' : 'light';
   document.documentElement.classList.toggle('dark', dark);
   const win = document.querySelector('.window');
-  if (win) win.classList.toggle('dark', dark);
+  if (win) {
+    win.classList.toggle('dark', dark);
+    // 自定义背景/主题色已移除：清掉旧版可能残留在元素上的内联覆盖（含 CSS 预留的 --custom-* 钩子）
+    ['--bg', '--custom-bg', '--blue', '--custom-accent', '--blue-tint', '--custom-accent-tint',
+     '--nav-active', '--custom-nav-active', '--t-blue', '--custom-accent-text']
+      .forEach((k) => win.style.removeProperty(k));
+  }
 }
 
-/** 切换外观：light / dark / system（后端 nativeTheme + 持久化） */
+/** 切换外观：light / dark / system（后端 nativeTheme 决定实际明暗 + 持久化） */
 export async function setTheme(theme) {
-  const r = await invoke('app:theme', theme);
-  if (r && r.dark !== undefined) set({ theme: r.dark ? 'dark' : 'light' });
-  else applyTheme(theme === 'dark' ? 'dark' : 'light');
+  const choice = ['light', 'dark', 'system'].includes(theme) ? theme : 'system';
+  const r = await invoke('app:theme', choice);
+  const resolved = (r && typeof r.dark === 'boolean')
+    ? (r.dark ? 'dark' : 'light')
+    : (choice === 'dark' ? 'dark' : 'light');
+  applyTheme(resolved);
+  if (S.state) {
+    set({
+      theme: resolved,
+      state: { ...S.state, ui: { ...(S.state.ui || {}), theme: choice } }
+    });
+  } else {
+    set({ theme: resolved });
+  }
   return r;
 }
 
