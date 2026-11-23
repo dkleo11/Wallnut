@@ -46,14 +46,14 @@ export default function Logs() {
     if (auto && boxRef.current) boxRef.current.scrollTop = boxRef.current.scrollHeight;
   }, [filtered.length, auto]);
 
-  return html`<div style="display:flex;flex-direction:column;gap:10px;min-height:0">
+  return html`<div style="flex:1;min-height:0;display:flex;flex-direction:column;gap:10px">
     <${PageHead} title="日志" sub=${`${entries.length} 条 · 内核日志与控制器实时日志合并`}>
       <${Search} value=${query} onInput=${setQuery} placeholder="搜索关键字" style="width:200px" />
       <button class="btn sm" onClick=${async () => { await invoke('app:copyText', filtered.map((e) => `${hm(e.t)} [${e.level}] ${e.msg}`).join('\n')); toast('日志已复制', 'ok'); }}><${Icon} name="copy" />复制</button>
       <button class="btn sm" onClick=${() => setAuto(!auto)}><${Icon} name=${auto ? 'pause' : 'play'} />${auto ? '自动滚动' : '已暂停'}</button>
     </${PageHead}>
 
-    <div class="chips">
+    <div class="chips logs-chips">
       <${Seg} value=${source} options=${[{ v: 'all', label: '全部来源' }, { v: 'core', label: '内核' }, { v: 'api', label: '实时 API' }]} onChange=${setSource} />
       <span class="chips-sep"></span>
       <${Chip} on=${level === 'all'} onClick=${() => setLevel('all')}>全部 <span>${entries.length}</span></${Chip}>

@@ -5,15 +5,19 @@ const path = require('path');
 const paths = require('./paths');
 const autostart = require('./autostart');
 const { notify } = require('./notify');
+const { tr } = require('./i18n');
 const { setSystemProxy, readProxyState } = require('./net/system-proxy');
+const { pickProxyPort } = require('./net/proxy-port');
 const { ControllerApi } = require('./core/api');
 
 const MODE_LABEL = { rule: '规则分流', global: '全部代理', direct: '全部直连' };
 
 class TrayManager {
-  constructor({ store, core, getWindow, showWindow, quit }) {
+  constructor({ store, core, rewrite, getWindow, showWindow, quit, onSystemProxyChange }) {
     this.store = store;
     this.core = core;
+    this.rewrite = rewrite;
+    this.onSystemProxyChange = onSystemProxyChange;
     this.getWindow = getWindow;
     this.showWindow = showWindow;
     this.quit = quit;
@@ -86,7 +90,7 @@ class TrayManager {
     const st = this.store.get().settings;
     const running = this.core.snapshot().running;
     const mode = st.mode || 'rule';
-    const status = running ? '已连接' : '未连接';
+    const status = running ? tr('已连接') : tr('未连接');
     this.tray.setToolTip(`Wallnut · ${status}${this.now ? ' · ' + this.now : ''}`);
     if (process.platform !== 'darwin') {
       this.tray.setTitle && this.tray.setTitle('');
@@ -95,32 +99,32 @@ class TrayManager {
     const template = [
       { label: `Wallnut · ${status}${this.now ? ' · ' + this.now : ''}`, enabled: false },
       { type: 'separator' },
-      { label: '显示主界面', click: () => this.showWindow() },
-      { label: running ? '断开连接（停止内核）' : '连接（启动内核）', click: () => this.toggleCore() },
+      { label: tr('显示主界面'), click: () => this.showWindow() },
+      { label: tr(running ? '断开连接（停止内核）' : '连接（启动内核）'), click: () => this.toggleCore() },
       {
-        label: '运行模式',
+        label: tr('运行模式'),
         submenu: ['rule', 'global', 'direct'].map((m) => ({
-          label: MODE_LABEL[m],
+          label: tr(MODE_LABEL[m]),
           type: 'radio',
           checked: mode === m,
           click: () => this.setMode(m)
         }))
       },
-      { label: '系统代理', type: 'checkbox', checked: this.sysProxy, click: () => this.toggleSystemProxy() },
+      { label: tr('系统代理'), type: 'checkbox', checked: this.sysProxy, click: () => this.toggleSystemProxy() },
       { type: 'separator' },
-      { label: this.now ? `当前节点：${this.now}` : '当前节点：未运行', enabled: false },
-      { label: '打开节点选择', click: () => this.openPage('nodes') },
-      { label: '地区测速', click: () => this.openPage('groups') },
-      { label: '规则与策略', click: () => this.openPage('rules') },
+      { label: `${tr('当前节点')}：${this.now || tr('未运行')}`, enabled: false },
+      { label: tr('打开节点选择'), click: () => this.openPage('nodes') },
+      { label: tr('地区测速'), click: () => this.openPage('groups') },
+      { label: tr('规则与策略'), click: () => this.openPage('rules') },
       { type: 'separator' },
       {
-        label: '开机自启动',
+        label: tr('开机自启动'),
         type: 'checkbox',
         checked: !!st.launchAtLogin,
         click: (item) => this.toggleAutostart(item.checked)
       },
-      { label: '打开数据目录', click: () => shell.openPath(paths.dataDir()) },
-      { label: '退出 Wallnut', click: () => this.quit() }
+      { label: tr('打开数据目录'), click: () => shell.openPath(paths.dataDir()) },
+      { label: tr('退出') + ' Wallnut', click: () => this.quit() }
     ];
 
     this.tray.setContextMenu(Menu.buildFromTemplate(template));
@@ -135,7 +139,14 @@ class TrayManager {
   async toggleCore() {
     if (this.core.snapshot().running) {
       await this.core.stop();
-      notify({ title: 'Wallnut', body: '内核已停止' });
+      // 内核停了重写就没有上游：系统代理还指着重写端口的话，走系统代理的程序会全部连不上。
+      if (this.store.get().settings.systemProxy && this.rewrite && this.rewrite.snapshot().running) {
+        try { await setSystemProxy(false, { port: this.store.get().settings.mixedPort }); } catch (_) {}
+        this.store.update((d) => { d.settings.systemProxy = false; });
+        notify({ title: 'Wallnut', body: '内核已停止，系统代理已自动关闭（重写没有上游）' });
+      } else {
+        notify({ title: 'Wallnut', body: '内核已停止' });
+      }
     } else {
       const r = await this.core.start();
       notify({
@@ -162,12 +173,13 @@ class TrayManager {
 
   async toggleSystemProxy() {
     const enable = !this.sysProxy;
-    const c = this.core.controllerCoords();
-    const port = c.mixedPort || this.store.get().settings.mixedPort;
+    // 端口必须与 ipc 共用同一套判断：重写开着时要指向重写端口，否则重写规则永远不会命中。
+    const port = pickProxyPort({ store: this.store, core: this.core, rewrite: this.rewrite });
     const r = await setSystemProxy(enable, { port });
-    this.store.update((d) => { d.settings.systemProxy = enable; });
+    if (r.ok) this.store.update((d) => { d.settings.systemProxy = enable; });
     this.sysProxy = r.enabled;
-    notify({ title: 'Wallnut', body: enable ? `系统代理已接管（127.0.0.1:${port}）` : '系统代理已关闭' });
+    notify({ title: 'Wallnut', body: !r.ok ? '系统代理设置失败' : (enable ? `系统代理已接管（127.0.0.1:${port}）` : '系统代理已关闭') });
+    try { if (this.onSystemProxyChange) this.onSystemProxyChange(); } catch (_) {}
     this.refresh(true);
   }
 

@@ -47,6 +47,7 @@ function defaultState() {
       closeAction: 'tray',
       launchAtLogin: false,
       notifications: true,
+      language: 'zh-CN',
       rewriteEnabled: false,
       rewritePort: 8890,
       mitmEnabled: false,
@@ -66,6 +67,7 @@ function defaultState() {
     rules: defaultRules(),
     ruleProviders: [],
     rewrites: [],
+    rewriteRemoteSets: [],
     mitmHosts: [],
     groups: [],
     ui: { theme: 'system', navOrder: null }
@@ -125,6 +127,18 @@ class Store {
     if (!Array.isArray(state.subscriptions)) state.subscriptions = [];
     if (!Array.isArray(state.localNodes)) state.localNodes = [];
     if (!Array.isArray(state.rewrites)) state.rewrites = [];
+    if (!Array.isArray(state.rewriteRemoteSets)) state.rewriteRemoteSets = [];
+    state.rewriteRemoteSets = state.rewriteRemoteSets.map((s, i) => ({
+      id: s.id || uid('rws'),
+      name: s.name || `线上规则集 ${i + 1}`,
+      url: String(s.url || ''),
+      enabled: s.enabled !== false,
+      interval: Number.isFinite(Number(s.interval)) ? Number(s.interval) : 1440,
+      updatedAt: s.updatedAt || null,
+      rulesCount: Array.isArray(s.rules) ? s.rules.length : (Number(s.rulesCount) || 0),
+      lastError: s.lastError || null,
+      rules: Array.isArray(s.rules) ? s.rules : []
+    }));
     if (!Array.isArray(state.mitmHosts)) state.mitmHosts = [];
     // 保证每个地区有稳定字段
     state.regions = state.regions.map((r, i) => ({

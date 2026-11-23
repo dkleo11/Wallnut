@@ -33,8 +33,24 @@ class RewriteEngine extends EventEmitter {
 
   _reload() {
     const state = this.store.get() || {};
-    this.rules = (Array.isArray(state.rewrites) ? state.rewrites : [])
-      .filter((rule) => rule && rule.enabled !== false && RULE_TYPES.has(rule.type))
+    const localRules = (Array.isArray(state.rewrites) ? state.rewrites : [])
+      .filter((rule) => rule && rule.enabled !== false && RULE_TYPES.has(rule.type));
+    // 线上规则集：只会读取启用且 rules 有效的集合；与本地规则合并，本地优先命中
+    const remoteRules = [];
+    for (const set of Array.isArray(state.rewriteRemoteSets) ? state.rewriteRemoteSets : []) {
+      if (!set || set.enabled === false || !Array.isArray(set.rules)) continue;
+      set.rules.forEach((rule, idx) => {
+        if (!rule || rule.enabled === false || !RULE_TYPES.has(rule.type)) return;
+        remoteRules.push({
+          ...rule,
+          id: 'rrs:' + String(set.id || '') + ':' + idx,
+          remoteSetId: set.id || null,
+          remoteSetName: set.name || '',
+          note: rule.note || ('线上规则集：' + String(set.name || ''))
+        });
+      });
+    }
+    this.rules = localRules.concat(remoteRules)
       .map((rule) => {
         try {
           return { ...rule, regex: new RegExp(String(rule.pattern || '')) };

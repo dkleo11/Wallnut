@@ -45,6 +45,18 @@ function RegionStrat({ region }) {
       </div>
       <div class="sc-acts">
         ${active ? html`<${Tag} cls="ok">当前策略</${Tag}>` : null}
+        <button class="mini sc-mode-btn" title=${region.mode === 'auto' ? '切换为手动选择节点' : '切换为由内核自动测速选优'}
+          onClick=${async (e) => {
+            e.stopPropagation();
+            const nextMode = region.mode === 'auto' ? 'select' : 'auto';
+            const patch = { ...region, mode: nextMode };
+            if (nextMode === 'select' && !patch.selected) patch.selected = nowName || region.nodes[0] || null;
+            const r = await call('region:save', { region: patch });
+            if (!r || !r.ok) return toast('切换模式失败', 'error');
+            toast(nextMode === 'auto' ? '已切换为自动测速' : '已切换为手动选择', 'ok');
+          }}>
+          ${region.mode === 'auto' ? '手动' : '自动'}
+        </button>
         <button class=${'sc-select-btn' + (active ? ' on' : '')} title=${active ? '当前已选择该地区' : '选择该地区节点'}
           disabled=${active}
           onClick=${(e) => { e.stopPropagation(); if (!active) selectPolicy(region.name); }}>
@@ -164,7 +176,7 @@ function GroupModal({ initial, onClose }) {
     if (r && r.ok) { toast('策略组已保存', 'ok'); onClose(); }
   };
 
-  return html`<${Modal} title=${g.id ? '编辑自定义策略组' : '新建自定义策略组'} onClose=${onClose} width="620px"
+  return html`<${Modal} title=${g.id ? '编辑自定义策略组' : '新建自定义策略组'} onClose=${onClose} width="620px" cls="glass-modal"
     foot=${html`<button class="btn" onClick=${onClose}>取消</button><button class="btn primary" onClick=${save}>保存并生效</button>`}>
     <div class="row" style="gap:10px">
       <${Field} label="组名" style="flex:1"><${Input} value=${name} placeholder="例如：流媒体" onInput=${(e) => setName(e.target.value)} /></${Field}>

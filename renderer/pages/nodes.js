@@ -70,6 +70,7 @@ export default function Nodes() {
     try {
       await client.selectProxy(mainGroup, n.name);
       toast(`已把「${mainGroup}」切到 ${n.name}`, 'ok');
+      try { window.__wallnutDebug && window.__wallnutDebug.refresh && window.__wallnutDebug.refresh(); } catch (_) {}
     } catch (err) {
       toast('切换失败：' + err.message, 'error');
     }

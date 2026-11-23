@@ -2,6 +2,7 @@
 
 import { html, Icon, Button, Switch, Seg, PageHead, Tag, Input, Modal, Spinner, fmtDuration, timeAgo, useStore, useState, useEffect } from '../ui.js';
 import { S, call, invoke, toast, saveSettings, setTheme } from '../store.js';
+import { LANGUAGES, setLanguage } from '../i18n.js';
 
 function Row({ label, note, children }) {
   return html`<div class="set-row">
@@ -77,6 +78,18 @@ export default function Settings() {
         <div class="set-group">
           <div class="set-label">通用</div>
           <div class="set-card">
+            <${Row} label="语言" note="界面语言，切换后自动刷新">
+              <select class="select glass-select" style="min-width:150px" value=${st.language || 'zh-CN'} onChange=${async (e) => {
+                const lang = e.target.value;
+                const r = await saveSettings({ language: lang });
+                if (!r || !r.ok) return;
+                setLanguage(lang);
+                try { localStorage.setItem('wallnut.lang', lang); } catch (_) {}
+                location.reload();
+              }}>
+                ${LANGUAGES.map((l) => html`<option value=${l.code} data-no-i18n>${l.name}</option>`)}
+              </select>
+            </${Row}>
             <div class="set-row">
               <div class="sl"><div class="sl-gap"><${Icon} name="settings" />外观</div><span class="note-grey">浅色 / 深色 / 跟随系统</span></div>
               <div class="sr">
@@ -103,13 +116,7 @@ export default function Settings() {
                 onChange=${(v) => set({ closeAction: v, closeToTray: v === 'tray' })} />
             </${Row}>
             <${Row} label="桌面通知" note="内核异常、订阅失败、托盘操作">
-              <div class="sr">
-                <${Switch} on=${st.notifications !== false} onChange=${(v) => set({ notifications: v })} />
-                <button class="btn sm" onClick=${async () => {
-                  const r = await call('app:notifyTest');
-                  toast(r && r.ok ? '已发送测试通知' : '系统通知不可用（可能被系统设置关闭）', r && r.ok ? 'ok' : 'error');
-                }}>测试</button>
-              </div>
+              <${Switch} on=${st.notifications !== false} onChange=${(v) => set({ notifications: v })} />
             </${Row}>
             <${TextRow} label="默认策略组名" note="规则末尾 MATCH 的兜底目标" value=${st.defaultTarget}
               onCommit=${(v) => v.trim() && set({ defaultTarget: v.trim() })} />
@@ -135,8 +142,8 @@ export default function Settings() {
             <${Row} label="IPv6" note="内核与 DNS 同时生效">
               <${Switch} on=${!!st.ipv6} onChange=${(v) => set({ ipv6: v })} />
             </${Row}>
-            <${Row} label="系统代理" note=${S.sys.systemProxy.enabled ? '已写入注册表并接管 WinINet' : '未接管'}>
-              <${Switch} on=${!!S.sys.systemProxy.enabled} onChange=${async (v) => {
+            <${Row} label="系统代理" note=${st.systemProxy ? '已写入注册表并接管 WinINet' : '未接管'}>
+              <${Switch} on=${!!st.systemProxy} onChange=${async (v) => {
                 const r = await call('net:systemProxy', { enable: v });
                 if (r && r.ok) toast(v ? '系统代理已开启' : '系统代理已关闭', 'ok');
               }} />
@@ -262,10 +269,15 @@ export default function Settings() {
         <div class="set-group">
           <div class="set-label">关于</div>
           <div class="set-card">
-            <div class="about-row"><span>Wallnut</span><span class="about-val">0.4.0</span></div>
+            <div class="about-row"><span>Wallnut</span><span class="about-val">0.4.8</span></div>
             <div class="about-row"><span>内核</span><span class="about-val">${S.core.version || 'mihomo'}</span></div>
             <div class="about-row"><span>许可证</span><span class="about-val">GPL-3.0</span></div>
-            <div class="about-row"><span>项目主页</span><span class="about-val">本地项目 · 无自动更新</span></div>
+            <div class="about-row"><span>项目地址</span>
+              <a class="about-link" href="https://github.com/dkleo11/Wallnut" title="打开 GitHub 项目主页"
+                onClick=${(e) => { e.preventDefault(); call('app:openExternal', 'https://github.com/dkleo11/Wallnut'); }}>
+                <${Icon} name="link" />github.com/dkleo11/Wallnut
+              </a>
+            </div>
           </div>
         </div>
       </div>

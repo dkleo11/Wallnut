@@ -1,6 +1,8 @@
 'use strict';
 
 const { contextBridge, ipcRenderer } = require('electron');
+const fs = require('fs');
+const path = require('path');
 
 const CHANNELS = [
   'app:bootstrap',
@@ -17,7 +19,10 @@ const CHANNELS = [
   'sub:updateAll',
   'sub:remove',
   'sub:toggle',
+  'sub:save',
   'sub:preview',
+  'sub:node:get',
+  'sub:node:save',
   'local:importText',
   'local:save',
   'local:remove',
@@ -58,6 +63,10 @@ const CHANNELS = [
   'app:trayReinit',
   'rewrite:save',
   'rewrite:remove',
+  'rewrite:remote:save',
+  'rewrite:remote:remove',
+  'rewrite:remote:update',
+  'rewrite:remote:updateAll',
   'rewrite:start',
   'rewrite:stop',
   'rewrite:status',
@@ -87,3 +96,9 @@ const api = {
 };
 
 contextBridge.exposeInMainWorld('wallnut', api);
+try {
+  const bundle = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'locales.json'), 'utf8'));
+  contextBridge.exposeInMainWorld('wallnutI18n', bundle);
+} catch (err) {
+  console.error('[wallnut] locales load failed:', err && err.message);
+}

@@ -34,6 +34,38 @@ function quotedCommand() {
   return `"${t.exe}" ${t.args}`;
 }
 
+function normalizePath(value) {
+  try {
+    return path.resolve(String(value || '').trim()).replace(/\//g, '\\').toLowerCase();
+  } catch (_) {
+    return String(value || '').trim().replace(/\//g, '\\').toLowerCase();
+  }
+}
+
+function exeFromCommand(command) {
+  const s = String(command || '').trim();
+  const quoted = s.match(/^"([^"]+?\.exe)"/i);
+  if (quoted) return quoted[1];
+  const bare = s.match(/^(\S+?\.exe)(?:\s|$)/i);
+  return bare ? bare[1] : '';
+}
+
+function isCurrentExe(command) {
+  const exe = exeFromCommand(command);
+  return !!exe && normalizePath(exe) === normalizePath(process.execPath);
+}
+
+function vbsInfo() {
+  try {
+    if (!fs.existsSync(vbsPath())) return { present: false, current: false };
+    const text = fs.readFileSync(vbsPath(), 'utf16le');
+    const m = text.match(/"([^"]+?\.exe)"/i);
+    return { present: true, current: !!m && normalizePath(m[1]) === normalizePath(process.execPath) };
+  } catch (_) {
+    return { present: false, current: false };
+  }
+}
+
 function regQuery() {
   try {
     const out = execFileSync('reg', ['query', RUN_KEY, '/v', VALUE], { encoding: 'utf8', windowsHide: true, timeout: 6000 });
@@ -64,12 +96,14 @@ function removeVbs() {
 
 function status() {
   const reg = regQuery();
-  const vbs = hasVbs();
+  const vbs = vbsInfo();
+  const regCurrent = reg.present && isCurrentExe(reg.command);
   return {
-    openAtLogin: reg.present || vbs,
-    method: reg.present ? 'registry' : vbs ? 'startup-folder' : 'none',
-    command: reg.command || (vbs ? '启动文件夹 Wallnut.vbs' : ''),
+    openAtLogin: regCurrent || vbs.current,
+    method: regCurrent ? 'registry' : vbs.current ? 'startup-folder' : 'none',
+    command: reg.command || (vbs.present ? '启动文件夹 Wallnut.vbs' : ''),
     target: quotedCommand(),
+    stale: (reg.present && !regCurrent) || (vbs.present && !vbs.current),
     wasOpenedAtLogin: (() => { try { return !!app.getLoginItemSettings().wasOpenedAtLogin; } catch (_) { return false; } })()
   };
 }
@@ -87,7 +121,8 @@ function apply(enabled) {
     if (process.platform === 'win32') {
       try {
         execFileSync('reg', ['add', RUN_KEY, '/v', VALUE, '/t', 'REG_SZ', '/d', quotedCommand(), '/f'], { windowsHide: true, timeout: 6000 });
-        regOk = true;
+        const written = regQuery();
+        regOk = written.present && isCurrentExe(written.command);
       } catch (_) { regOk = false; }
       try { app.setLoginItemSettings({ openAtLogin: true, path: target().exe, args: app.isPackaged ? ['--hidden'] : [path.join(__dirname, '..'), '--hidden'] }); } catch (_) {}
     }
@@ -104,15 +139,17 @@ function apply(enabled) {
 /** 启动时校准：设置与系统状态不一致时修正 */
 function sync(enabled) {
   const st = status();
-  if (!!enabled === st.openAtLogin) {
-    if (!enabled) apply(false); // 顺手清残留
-    return st;
+  if (!enabled) return (st.openAtLogin || st.stale) ? apply(false) : st;
+  // 注册表存在但指向旧版本目录（移动/升级过程序）时，必须重写到当前 EXE。
+  if (st.openAtLogin && !st.stale) {
+    if (st.method === 'registry' && hasVbs()) removeVbs(); // 避免登录时启动两次
+    return status();
   }
-  return apply(!!enabled);
+  return apply(true);
 }
 
 function wasLaunchedByLogin() {
   try { return !!app.getLoginItemSettings().wasOpenedAtLogin; } catch (_) { return false; }
 }
 
-module.exports = { apply, status, sync, wasLaunchedByLogin, vbsPath, target };
+module.exports = { apply, status, sync, wasLaunchedByLogin, vbsPath, target, isCurrentExe };

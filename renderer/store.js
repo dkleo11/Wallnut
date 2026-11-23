@@ -1,6 +1,7 @@
 /* 全局状态：后端 bootstrap 快照 + 实时流量/日志/测速 + 轻量事件总线 */
 
 import { useReducer, useEffect } from './vendor/hooks.mjs';
+import { getLanguage, setLanguage, setProtectedStrings, tr } from './i18n.js';
 
 export const S = {
   booted: false,
@@ -81,6 +82,28 @@ export async function call(channel, payload, { silent = false } = {}) {
 /* 启动                                                               */
 /* ------------------------------------------------------------------ */
 
+
+function syncUiLanguage(state) {
+  const lang = (state && state.settings && state.settings.language) || 'zh-CN';
+  if (lang !== getLanguage()) {
+    setLanguage(lang);
+    try { localStorage.setItem('wallnut.lang', lang); } catch (_) {}
+    // 让所有页面用新语言重新创建 VNode
+    try { location.reload(); } catch (_) {}
+  }
+}
+
+function syncProtectedStrings(data) {
+  if (!data) return;
+  const values = [];
+  for (const n of data.nodes || []) if (n && n.name) values.push(n.name);
+  const st = data.state || {};
+  for (const s of st.subscriptions || []) if (s && s.name) values.push(s.name);
+  for (const n of st.localNodes || []) if (n && n.name) values.push(n.name);
+  for (const g of st.groups || []) if (g && g.name) values.push(g.name);
+  setProtectedStrings(values);
+}
+
 export async function boot() {
   try {
     const data = await invoke('app:bootstrap');
@@ -101,7 +124,9 @@ export async function boot() {
       error: null
     });
     applyTheme(data.theme);
-    window.__wallnutDebug = { S, set, setPage, setTheme, boot };
+    syncProtectedStrings(data);
+    syncUiLanguage(data.state);
+    window.__wallnutDebug = { S, set, setPage, setTheme, boot, tr };
     return data;
   } catch (err) {
     set({ loading: false, error: err.message });
@@ -138,10 +163,14 @@ const NAV_PAGES = ['home', 'nodes', 'groups', 'rules', 'rewrite', 'cert', 'activ
 
 export function wireEvents() {
   window.wallnut.on('state', (payload) => {
+    syncProtectedStrings(payload);
+    syncUiLanguage(payload.state);
+    // settings.systemProxy 可能被「重写开关联动」「托盘」「设置页」改动：同步刷新系统代理卡片的状态
     set({
       state: payload.state,
       nodes: payload.nodes || [],
-      regions: payload.regions || []
+      regions: payload.regions || [],
+      sys: { ...S.sys, systemProxy: { ...S.sys.systemProxy, enabled: !!payload.state?.settings?.systemProxy } }
     });
   });
 

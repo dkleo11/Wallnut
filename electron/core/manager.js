@@ -178,6 +178,7 @@ class CoreManager extends EventEmitter {
       this.pushLog('[wallnut] 进程错误: ' + err.message, 'system');
     });
     proc.on('exit', (code, signal) => {
+      // wasRunning 为真 = 没人让它停，它是自己退出的（崩溃/OOM/被外部杀掉）；主动 stop() 时 status 已是 stopping。
       const wasRunning = this.status === 'running';
       this.proc = null;
       this.pid = null;
@@ -185,6 +186,7 @@ class CoreManager extends EventEmitter {
       this.pushLog(`[wallnut] 内核退出 code=${code} signal=${signal || ''}`, 'system');
       this.emit('status', this.snapshot());
       if (this.shouldRun && wasRunning) this.scheduleRestart();
+      if (wasRunning) this.emit('crash', { code, signal: signal || null });
     });
 
     // 等待控制器就绪

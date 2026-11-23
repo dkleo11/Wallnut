@@ -10,9 +10,12 @@ const Store = require('./store').Store;
 const { CoreManager } = require('./core/manager');
 const { registerIpc, publicState, nodeList, regionSummary, updateDueSubscriptions } = require('./ipc');
 const { setSystemProxy } = require('./net/system-proxy');
+const { pickProxyPort } = require('./net/proxy-port');
+const { createCrashGuard } = require('./core/crash-guard');
 const { sleep } = require('./util');
 const { TrayManager } = require('./tray');
 const autostart = require('./autostart');
+const i18n = require('./i18n');
 const { notify, configure: configureNotify } = require('./notify');
 
 const isDev = process.env.WALLNUT_DEV === '1';
@@ -316,6 +319,7 @@ function main() {
   app.whenReady().then(async () => {
     store = new Store();
     store.load();
+    i18n.setLanguage(store.get().settings.language || 'zh-CN');
     // 主题
     const ui = store.get().ui || {};
     if (['light', 'dark', 'system'].includes(ui.theme)) nativeTheme.themeSource = ui.theme;
@@ -330,6 +334,18 @@ function main() {
         global.__wallnutLoggedRunning = true;
       }
     });
+    // 内核意外退出（非主动停止）时，若系统代理指向重写端口而内核又没自动重启回来，就自动关闭系统代理。
+    const onCoreCrash = createCrashGuard({
+      store, core,
+      getRewrite: () => rewrite,
+      setSystemProxy,
+      onFix: () => {
+        try { if (ipcBridge) ipcBridge.broadcastState(); } catch (_) {}
+        notify({ title: 'Wallnut 内核异常退出', body: '系统代理已自动关闭（重写引擎没有上游），请打开主界面查看内核日志。' });
+        try { send('toast', { kind: 'warn', message: '内核异常退出，系统代理已自动关闭（重写没有上游）' }); } catch (_) {}
+      }
+    });
+    core.on('crash', () => onCoreCrash());
     core.on('log', (l) => {
       send('log', l);
       if (l && l.line && l.line.includes('连续崩溃')) {
@@ -345,7 +361,7 @@ function main() {
     rewrite.on('hit', () => send('rewrite', { engine: rewrite.snapshot() }));
 
     // Windows 通知归属：开始菜单快捷方式携带 AppUserModelID，否则通知会显示 Electron。
-    if (process.platform === 'win32' && !isPortable) {
+    if (process.platform === 'win32') {
       try {
         const root = path.join(__dirname, '..');
         const link = path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Wallnut.lnk');
@@ -373,8 +389,9 @@ function main() {
       tray: () => trayMgr && trayMgr.tray
     });
     trayMgr = new TrayManager({
-      store, core, getWindow: () => win, showWindow,
-      quit: () => { quitting = true; app.quit(); }
+      store, core, rewrite, getWindow: () => win, showWindow,
+      quit: () => { quitting = true; app.quit(); },
+      onSystemProxyChange: () => { try { if (ipcBridge) ipcBridge.broadcastState(); } catch (_) {} }
     });
     trayMgr.init();
 
@@ -429,11 +446,16 @@ function main() {
     if (store.get().settings.rewriteEnabled) {
       const r = await rewrite.start();
       if (!r.ok) send('toast', { kind: 'error', message: '重写引擎启动失败：' + (r.error || '未知错误') });
+      // 重写只收得到系统代理过来的流量：启动时补开系统代理（TUN 保持不动）。
+      // 但内核没起来时重写没有上游，开了系统代理等于让所有程序连不上，所以这种情况只提示、不动注册表。
+      else if (!store.get().settings.systemProxy) {
+        if (core.snapshot().running) store.update((d) => { d.settings.systemProxy = true; });
+        else send('toast', { kind: 'warn', message: '重写已启用，但内核未运行：未自动开启系统代理（重写没有上游）' });
+      }
     }
     if (store.get().settings.systemProxy) {
-      const st = store.get().settings;
-      const port = st.rewriteEnabled && rewrite.snapshot().running ? rewrite.snapshot().port : (core.controllerCoords().mixedPort || st.mixedPort);
-      await setSystemProxy(true, { port });
+      // 与 ipc / 托盘共用同一套端口判断：重写在跑就指向重写端口。
+      await setSystemProxy(true, { port: pickProxyPort({ store, core, rewrite }) });
     }
 
     // 订阅自动更新巡检

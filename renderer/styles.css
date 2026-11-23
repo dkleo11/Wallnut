@@ -23,17 +23,17 @@ svg { display: block; }
 /* ---------- 设计令牌 · Glass UI 0.4 ---------- */
 :root, .window {
   --bg: transparent;
-  --card: rgba(255, 255, 255, .60);
-  --bar: rgba(255, 255, 255, .46);
-  --rail: rgba(255, 255, 255, .46);
-  --fill: rgba(12, 22, 45, .045);
-  --fill-2: rgba(12, 22, 45, .075);
-  --line: rgba(18, 28, 55, .10);
-  --line-2: rgba(18, 28, 55, .18);
-  --ctrl: rgba(18, 28, 55, .16);
-  --edge: rgba(255, 255, 255, .85);
-  --win-bg: rgba(255, 255, 255, .58);
-  --switch-off: rgba(12, 22, 45, .12);
+  --card: rgba(255, 255, 255, .70);
+  --bar: rgba(255, 255, 255, .58);
+  --rail: rgba(255, 255, 255, .58);
+  --fill: rgba(12, 22, 45, .04);
+  --fill-2: rgba(12, 22, 45, .07);
+  --line: rgba(18, 28, 55, .09);
+  --line-2: rgba(18, 28, 55, .16);
+  --ctrl: rgba(18, 28, 55, .14);
+  --edge: rgba(255, 255, 255, .92);
+  --win-bg: rgba(255, 255, 255, .72);
+  --switch-off: rgba(12, 22, 45, .11);
   --seg-on: #FFFFFF;
   --text: #10131C;
   --sub: rgba(16, 19, 28, .64);
@@ -44,6 +44,9 @@ svg { display: block; }
   --t-purple: #7A3B99; --t-indigo: #3E3CB5; --t-teal: #0A6C80;
   --card-shadow: 0 8px 22px rgba(24, 40, 90, .08);
   --panel-shadow: 0 12px 30px rgba(24, 40, 90, .10);
+  /* 浮层（下拉菜单 / 弹窗）专用：足够不透明 + 毛玻璃，避免透出下层内容 */
+  --pop-bg: rgba(255, 255, 255, .94);
+  --pop-border: rgba(18, 28, 55, .14);
   --sheen: inset 0 1px 0 rgba(255, 255, 255, .9);
   --ease: cubic-bezier(.22, .61, .36, 1);
   color-scheme: light;
@@ -70,6 +73,8 @@ svg { display: block; }
   --t-purple: #D69BF5; --t-indigo: #B0AEFF; --t-teal: #57D4E8;
   --card-shadow: 0 10px 30px rgba(0, 0, 0, .18);
   --panel-shadow: 0 14px 40px rgba(0, 0, 0, .22);
+  --pop-bg: rgba(26, 30, 46, .95);
+  --pop-border: rgba(255, 255, 255, .16);
   --sheen: inset 0 1px 0 rgba(255, 255, 255, .10);
   color-scheme: dark;
 }
@@ -386,6 +391,7 @@ svg { display: block; }
 
 /* ---------- 日志 / 活动 ---------- */
 .log-list { display: flex; flex-direction: column; font-family: ui-monospace, "SFMono-Regular", "Cascadia Mono", Consolas, monospace; font-size: 11.5px; line-height: 1.6; }
+.logs-chips { flex: none; }
 .log-line { display: flex; gap: 8px; padding: 2px 12px; border-bottom: 1px solid rgba(229, 229, 234, .35); }
 .window.dark .log-line { border-bottom-color: rgba(58, 58, 60, .5); }
 .log-time { color: var(--sub); flex: none; width: 62px; }
@@ -864,14 +870,14 @@ body::after {
 }
 html:not(.dark) body::before {
   background:
-    radial-gradient(46vw 46vw at 8% -8%, rgba(10, 132, 255, .30), transparent 62%),
-    radial-gradient(40vw 40vw at 98% -4%, rgba(94, 92, 230, .26), transparent 62%),
-    radial-gradient(40vw 40vw at 20% 106%, rgba(52, 199, 89, .18), transparent 64%),
-    radial-gradient(32vw 32vw at 96% 100%, rgba(191, 90, 242, .16), transparent 62%),
-    linear-gradient(162deg, #E4EDFF 0%, #EDF3FC 46%, #F6F9FF 100%);
+    radial-gradient(46vw 46vw at 8% -8%, rgba(10, 132, 255, .22), transparent 62%),
+    radial-gradient(40vw 40vw at 98% -4%, rgba(94, 92, 230, .18), transparent 62%),
+    radial-gradient(40vw 40vw at 20% 106%, rgba(52, 199, 89, .12), transparent 64%),
+    radial-gradient(32vw 32vw at 96% 100%, rgba(191, 90, 242, .12), transparent 62%),
+    linear-gradient(162deg, #F3F8FF 0%, #FAFCFF 46%, #FFFFFF 100%);
 }
 html:not(.dark) body::after {
-  background: radial-gradient(74% 64% at 50% 46%, rgba(255, 255, 255, .30) 0%, rgba(228, 237, 251, .46) 64%, rgba(214, 226, 245, .58) 100%);
+  background: radial-gradient(74% 64% at 50% 46%, rgba(255, 255, 255, .24) 0%, rgba(247, 251, 255, .16) 64%, rgba(240, 247, 255, .22) 100%);
 }
 
 /* ---------- 窗口：regular material ---------- */
@@ -961,8 +967,7 @@ html:not(.dark) .rail { background: linear-gradient(180deg, rgba(255, 255, 255, 
 .topbar {
   height: 58px; flex: none; display: flex; align-items: center; gap: 14px; padding: 0 16px 0 18px;
   background: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .015));
-  -webkit-backdrop-filter: blur(26px) saturate(150%);
-  backdrop-filter: blur(26px) saturate(150%);
+  /* 这里不叠 backdrop-filter：窗口本身已经磨砂，且父级 backdrop-filter 会让子级浮层的模糊失效 */
   border-bottom: 1px solid var(--line); position: relative; z-index: 6;
 }
 html:not(.dark) .topbar { background: linear-gradient(180deg, rgba(255, 255, 255, .52), rgba(255, 255, 255, .24)); }
@@ -987,11 +992,12 @@ html:not(.dark) .topbar { background: linear-gradient(180deg, rgba(255, 255, 255
 .mode-name { font-size: 11.5px; font-weight: 600; letter-spacing: .1px; white-space: nowrap; }
 .mode-trigger .chev { color: var(--sub); transition: transform .2s var(--ease); }
 .mode-trigger[aria-expanded="true"] .chev { transform: rotate(180deg); }
-.mode-pop { position: absolute; right: 0; top: calc(100% + 8px); width: 190px; padding: 6px; z-index: 40;
-  border-radius: 12px; background: var(--card); border: 1px solid var(--line-2);
-  -webkit-backdrop-filter: blur(30px) saturate(170%); backdrop-filter: blur(30px) saturate(170%);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, .38), var(--sheen); animation: popIn .18s var(--ease); }
-html:not(.dark) .mode-pop { background: rgba(255, 255, 255, .92); }
+/* 下拉浮层：近不透明的毛玻璃（0.95 底色 + 26px 模糊），下层内容不会透出来 */
+.mode-pop { position: absolute; right: 0; top: calc(100% + 8px); width: 194px; padding: 6px; z-index: 60;
+  border-radius: 12px; background: var(--pop-bg); border: 1px solid var(--pop-border);
+  -webkit-backdrop-filter: blur(26px) saturate(180%); backdrop-filter: blur(26px) saturate(180%);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .42), 0 0 0 .5px rgba(0, 0, 0, .08), inset 0 1px 0 rgba(255, 255, 255, .10);
+  animation: popIn .18s var(--ease); }
 @keyframes popIn { from { opacity: 0; transform: translateY(-6px) scale(.98); } }
 .mode-pop button { display: flex; align-items: center; gap: 9px; width: 100%; height: 34px; padding: 0 9px;
   border-radius: 8px; font-size: 12px; color: var(--sub-2); }
@@ -1070,9 +1076,11 @@ html:not(.dark) .card, html:not(.dark) .panel, html:not(.dark) .listbar { backgr
 .btn { height: 31px; padding: 0 12px; border-radius: 9px; background: rgba(255, 255, 255, .085);
   border: 1px solid var(--line-2); color: var(--text); font-size: 11.5px; font-weight: 600;
   letter-spacing: .15px; box-shadow: var(--sheen); transition: background .16s var(--ease), border-color .16s var(--ease), transform .1s var(--ease); }
-html:not(.dark) .btn { background: rgba(255, 255, 255, .54); }
+/* 浅色模式只提亮「普通」按钮：primary / danger / ghost 有各自的底色，不能被这条规则覆盖 */
+html:not(.dark) .btn:not(.primary):not(.danger):not(.ghost) { background: rgba(255, 255, 255, .54); }
 .btn:hover { background: rgba(255, 255, 255, .14); border-color: var(--edge); }
-html:not(.dark) .btn:hover { background: rgba(255, 255, 255, .82); }
+html:not(.dark) .btn:not(.primary):not(.danger):not(.ghost):hover { background: rgba(255, 255, 255, .82); }
+html:not(.dark) .btn.primary { background: linear-gradient(180deg, #2E9BFF, #0A7BE8); border-color: rgba(140, 200, 255, .45); color: #fff; }
 .btn:active { transform: scale(.978); }
 .btn.primary { background: linear-gradient(180deg, #2E9BFF, #0A7BE8); border-color: rgba(140, 200, 255, .45); color: #fff;
   box-shadow: 0 4px 14px rgba(10, 132, 255, .35), inset 0 1px 0 rgba(255, 255, 255, .28); }
@@ -1100,6 +1108,13 @@ html:not(.dark) .btn:hover { background: rgba(255, 255, 255, .82); }
 html:not(.dark) .seg button.on { background: #fff; box-shadow: 0 1px 3px rgba(24, 40, 90, .14); }
 
 .select { height: 30px; border-radius: 9px; background: var(--fill); border: 1px solid var(--line-2); font-size: 11.5px; }
+.select.glass-select { background: rgba(255, 255, 255, .58); border-color: rgba(255, 255, 255, .62);
+  box-shadow: 0 4px 14px rgba(24, 40, 90, .06), var(--sheen);
+  -webkit-backdrop-filter: blur(18px) saturate(165%); backdrop-filter: blur(18px) saturate(165%);
+  padding-right: 8px; }
+.window.dark .select.glass-select { background: rgba(255, 255, 255, .075); border-color: rgba(255, 255, 255, .16);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .12), var(--sheen); }
+.select.glass-select option { background: var(--pop-bg); color: var(--text); }
 .chip { height: 26px; padding: 0 10px; border-radius: 8px; font-size: 11px; background: var(--fill); color: var(--sub-2);
   border: 1px solid transparent; }
 .chip:hover { background: var(--fill-2); color: var(--text); }
@@ -1238,11 +1253,14 @@ html:not(.dark) .statusbar { background: rgba(255, 255, 255, .36); }
 
 /* ---------- 弹层 / 提示 ---------- */
 .overlay { background: rgba(8, 10, 18, .42); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
-.modal { background: var(--card); border: 1px solid var(--line-2); border-radius: 16px;
-  -webkit-backdrop-filter: blur(34px) saturate(170%); backdrop-filter: blur(34px) saturate(170%);
-  box-shadow: 0 32px 80px rgba(0, 0, 0, .5), var(--sheen); }
-.window.dark .modal { background: rgba(26, 30, 46, .88); }
-html:not(.dark) .modal { background: rgba(255, 255, 255, .9); }
+.modal { background: var(--pop-bg); border: 1px solid var(--pop-border); border-radius: 16px;
+  -webkit-backdrop-filter: blur(30px) saturate(170%); backdrop-filter: blur(30px) saturate(170%);
+  box-shadow: 0 32px 80px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(255, 255, 255, .10); }
+.modal.glass-modal { background: rgba(255, 255, 255, .66); border-color: rgba(255, 255, 255, .58);
+  box-shadow: 0 28px 70px rgba(24, 40, 90, .26), inset 0 1px 0 rgba(255, 255, 255, .9);
+  -webkit-backdrop-filter: blur(28px) saturate(175%); backdrop-filter: blur(28px) saturate(175%); }
+.window.dark .modal.glass-modal { background: rgba(26, 30, 46, .70); border-color: rgba(255, 255, 255, .18);
+  box-shadow: 0 32px 80px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(255, 255, 255, .10); }
 .modal-head, .modal-foot { border-color: var(--line); }
 .modal-body .sub { color: var(--sub); }
 .toast { background: rgba(28, 32, 46, .9); border: 1px solid rgba(255, 255, 255, .14); border-radius: 11px;
@@ -1283,3 +1301,13 @@ button:focus-visible, .nav-item:focus-visible, .input:focus-visible,
   .rail .nav-item { justify-content: center; padding: 0; }
   .capsule.traffic { display: none; }
 }
+
+/* 关于：项目地址 */
+.about-link {
+  display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 280px;
+  color: var(--blue); font-size: 12px; font-weight: 600; text-decoration: none;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.about-link .ico { width: 12px; height: 12px; flex: none; }
+.about-link:hover { text-decoration: underline; }
+.about-row > span:first-child { flex: none; }

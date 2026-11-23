@@ -64,7 +64,6 @@ export default function Home() {
   const curUp = fmtSpeed(S.traffic.up);
   const total = fmtBytes(S.traffic.downTotal || 0);
   const totalUp = fmtBytes(S.traffic.upTotal || 0);
-  const mem = S.runtime.memory;
 
   const toggle = async () => {
     if (busy) return;
@@ -165,11 +164,9 @@ export default function Home() {
       </section>
     </div>
 
-    <section class="tiles" style="grid-template-rows:1fr">
+    <section class="tiles" style="grid-template-columns:repeat(2,minmax(0,1fr))">
       <${Tile} icon="target" color="c-purple" label="规则命中" tag="累计"
         value=${rulesHits ? rulesHits.toLocaleString() : '—'} unit=${rulesHits ? '次' : ''} sub=${`${(S.runtime.rules || []).length} 条规则 · 远程集 ${(S.state.ruleProviders || []).length}`} />
-      <${Tile} icon="mem" color="c-indigo" label="内存占用" tag="内核"
-        value=${mem && mem.inuse ? Math.round(mem.inuse / 1024 / 1024) : '—'} unit=${mem && mem.inuse ? 'MB' : ''} sub=${!running ? '内核未运行' : mem && mem.oslimit ? '上限 ' + Math.round(mem.oslimit / 1024 / 1024) + ' MB' : '等待内核内存数据'} />
       <${Tile} icon="chip" color="c-blue" label="内核版本" tag="meta"
         value=${S.core.version || 'mihomo'} sub=${running ? 'PID ' + S.core.pid + ' · 已运行 ' + fmtDuration(Date.now() - (S.core.startedAt || Date.now())) : '未运行'} />
     </section>

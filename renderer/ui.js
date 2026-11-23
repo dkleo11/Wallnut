@@ -1,8 +1,10 @@
 import { h, Fragment } from './vendor/preact.mjs';
 import htm from './vendor/htm.mjs';
 import { useState, useEffect, useCallback, useMemo, useRef } from './vendor/hooks.mjs';
+import { localizeVNode } from './i18n.js';
 
-export const html = htm.bind(h);
+const rawHtml = htm.bind(h);
+export const html = (strings, ...values) => localizeVNode(rawHtml(strings, ...values));
 export { h, Fragment, useState, useEffect, useCallback, useMemo, useRef };
 export { useStore } from './store.js';
 
@@ -86,8 +88,8 @@ export const Empty = ({ icon = 'folder', title, sub, children }) => html`<div cl
 
 export const Spinner = ({ cls = '' }) => html`<span class=${'spin ' + cls} style="display:inline-flex"><${Icon} name="refresh" cls="ico-14" /></span>`;
 
-export const Modal = ({ title, onClose, children, foot, width }) => html`<div class="overlay" onClick=${onClose}>
-  <div class="modal" style=${width ? { width } : undefined} onClick=${(e) => e.stopPropagation()}>
+export const Modal = ({ title, onClose, children, foot, width, cls = '' }) => html`<div class="overlay" onClick=${onClose}>
+  <div class=${'modal ' + cls} style=${width ? { width } : undefined} onClick=${(e) => e.stopPropagation()}>
     <div class="modal-head">
       <span class="modal-title">${title}</span>
       <button class="btn ghost sm" onClick=${onClose}><${Icon} name="x" /></button>

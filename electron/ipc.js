@@ -8,11 +8,14 @@ const paths = require('./paths');
 const { buildConfig, collectNodes } = require('./config/generate');
 const { parseSubscriptionText, parseLocalText, dedupeNames, parseUri } = require('./subs/parse');
 const { download } = require('./subs/download');
+const { parseRewriteText } = require('./rewrite/remote');
 const { SpeedTestRunner } = require('./core/speedtest');
 const { detectRegion, allPresets, regionFlag } = require('./regions');
 const { setSystemProxy, readProxyState, isElevated, openProxySettings } = require('./net/system-proxy');
+const { pickProxyPort } = require('./net/proxy-port');
 const { uid, mergeDeep, sanitizeProxyName, clone } = require('./util');
 const autostart = require('./autostart');
+const i18n = require('./i18n');
 const { notify } = require('./notify');
 const { ControllerApi } = require('./core/api');
 
@@ -23,7 +26,11 @@ function publicState(state) {
     const { nodes: n, ...sub } = s;
     return { ...sub, nodeCount: (n || []).length };
   });
-  return { ...rest, subscriptions: subs };
+  // 线上重写规则集只同步元信息，规则本身体量可能很大，留在主进程
+  const rewriteRemoteSets = (state.rewriteRemoteSets || []).map(({ rules, ...set }) => ({
+    ...set, rulesCount: (rules || []).length
+  }));
+  return { ...rest, subscriptions: subs, rewriteRemoteSets };
 }
 
 function nodeList(state) {
@@ -93,10 +100,8 @@ function registerIpc({ store, core, rewrite, ca, getWindow, showWindow, quitApp,
   };
   const rewriteStatus = async () => ({ ok: true, engine: rewrite ? rewrite.snapshot() : { running: false }, ca: await caSnapshot() });
   const broadcastRewrite = async () => send('rewrite', { engine: rewrite ? rewrite.snapshot() : null, ca: await caSnapshot() });
-  const effectiveProxyPort = () => {
-    const st = store.get().settings;
-    return st.rewriteEnabled && rewrite && rewrite.snapshot().running ? rewrite.snapshot().port : (core.controllerCoords().mixedPort || st.mixedPort);
-  };
+  // 端口选择与托盘共用（electron/net/proxy-port.js），重写在跑时要指向重写端口。
+  const effectiveProxyPort = () => pickProxyPort({ store, core, rewrite });
 
   const bootstrap = async () => {
     const state = store.get();
@@ -138,24 +143,42 @@ function registerIpc({ store, core, rewrite, ca, getWindow, showWindow, quitApp,
   ipcMain.handle('app:settings:save', async (_e, patch) => {
     const prev = clone(store.get().settings);
     store.update((d) => { d.settings = mergeDeep(d.settings, patch || {}); });
+    if (patch && Object.prototype.hasOwnProperty.call(patch, 'language')) {
+      i18n.setLanguage(store.get().settings.language || 'zh-CN');
+      try { if (trayMgr) trayMgr.refresh(true); } catch (_) {}
+    }
     broadcastState();
     if (patch && Object.prototype.hasOwnProperty.call(patch, 'launchAtLogin')) {
       const r = autostart.apply(patch.launchAtLogin === true);
       if (!r.ok) return { ok: false, error: '开机自启动设置失败：' + (r.error || '未知错误') };
     }
+    // 重写引擎只收得到「系统代理指向它」的流量：开重写就把系统代理自动指过来（TUN 保持不动），
+    // 关重写就把系统代理一起关掉——否则系统代理会停在一个已经关掉的端口上，所有走系统代理的程序直接失败。
+    let proxyChange = null;
     if (rewrite && patch && ['rewriteEnabled', 'rewritePort'].some((k) => Object.prototype.hasOwnProperty.call(patch, k))) {
       const r = store.get().settings.rewriteEnabled ? await rewrite.start() : await rewrite.stop();
       if (!r.ok) return { ok: false, error: '重写引擎：' + (r.error || '启动失败') };
-      if (store.get().settings.systemProxy) await setSystemProxy(true, { port: effectiveProxyPort() });
+      if (store.get().settings.rewriteEnabled) {
+        if (!store.get().settings.systemProxy) {
+          const sp = await setSystemProxy(true, { port: effectiveProxyPort() });
+          if (sp.ok) { store.update((d) => { d.settings.systemProxy = true; }); proxyChange = 'on'; }
+        } else {
+          await setSystemProxy(true, { port: effectiveProxyPort() });
+        }
+      } else if (store.get().settings.systemProxy) {
+        const sp = await setSystemProxy(false, { port: store.get().settings.mixedPort });
+        if (sp.ok) { store.update((d) => { d.settings.systemProxy = false; }); proxyChange = 'off'; }
+      }
       await broadcastRewrite();
+      broadcastState();
     }
     const needRestart = ['mixedPort', 'controllerPort', 'secret', 'mode', 'logLevel', 'allowLan', 'ipv6', 'tunEnabled', 'tunStack', 'strictRoute', 'dns', 'unifiedDelay', 'findProcessMode']
       .some((k) => JSON.stringify(prev[k]) !== JSON.stringify(store.get().settings[k]));
     if (needRestart && core.snapshot().running) {
       const r = await core.apply();
-      return { ok: true, applied: r };
+      return { ok: true, applied: r, proxyChange };
     }
-    return { ok: true };
+    return { ok: true, proxyChange };
   });
 
   ipcMain.handle('app:openExternal', async (_e, url) => {
@@ -316,12 +339,130 @@ function registerIpc({ store, core, rewrite, ca, getWindow, showWindow, quitApp,
     return { ok: true };
   });
 
+  ipcMain.handle('sub:save', async (_e, { id, name, url, interval, insecure, enabled } = {}) => {
+    const current = (store.get().subscriptions || []).find((s) => s.id === id);
+    if (!current) return { ok: false, error: '订阅不存在，可能已被删除' };
+    const nextName = String(name == null ? current.name : name).trim();
+    if (!nextName) return { ok: false, error: '请填写订阅名称' };
+    const inline = String(current.url || '').startsWith('inline:');
+    const nextUrl = inline && url == null ? current.url : String(url == null ? current.url : url).trim();
+    if (!inline || url != null) {
+      if (!/^https?:\/\//i.test(nextUrl) && !fs.existsSync(nextUrl)) {
+        return { ok: false, error: '订阅地址需要是 http(s) 链接或本地文件路径' };
+      }
+    }
+    const mins = Number(interval == null ? (current.interval || 0) : interval);
+    if (!Number.isFinite(mins) || mins < 0 || mins > 10080) return { ok: false, error: '更新间隔需要是 0-10080 分钟' };
+    const urlChanged = String(current.url || '') !== nextUrl;
+    const insecureChanged = (current.insecure === true) !== (insecure === true);
+    store.update((d) => {
+      const s = d.subscriptions.find((x) => x.id === id);
+      if (!s) return;
+      s.name = sanitizeProxyName(nextName, '订阅');
+      s.url = nextUrl;
+      s.interval = mins;
+      s.insecure = insecure == null ? s.insecure === true : insecure === true;
+      if (enabled != null) s.enabled = !!enabled;
+      if (urlChanged) { s.nodes = []; s.nodeCount = 0; s.updatedAt = null; s.lastError = null; s.format = null; }
+    });
+    broadcastState();
+    // 地址或证书策略变化后需要重新拉取；只改名字/间隔则直接重建配置
+    if (urlChanged || insecureChanged) {
+      const r = await applySub(id);
+      return { ok: !!(r && r.ok), urlChanged, nodeCount: r && r.nodeCount, format: r && r.format, warnings: (r && r.warnings) || [], error: r && r.ok ? undefined : (r && r.error) };
+    }
+    await core.apply();
+    return { ok: true, urlChanged: false };
+  });
+
   ipcMain.handle('sub:preview', async (_e, { url, insecure }) => {
     try {
       const res = await download(url, { timeout: 20000, insecure: insecure === true });
       const parsed = parseSubscriptionText(res.text, '预览');
       return { ok: true, format: parsed.format, nodeCount: parsed.nodes.length, warnings: parsed.warnings, sample: parsed.nodes.slice(0, 5).map((n) => n.name), remotes: parsed.remotes || null };
     } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  /* ---------------- 订阅节点编辑 ---------------- */
+  const stripDedupeSuffix = (name) => String(name || '').replace(/ #\d+$/, '');
+
+  /** 在订阅里定位原始节点；渲染层看到的名字可能带全局去重后缀「 #2」 */
+  /** 节点改名后同步地区组的 selected/best 引用，避免策略仍指向旧名 */
+  const remapRegionNode = (d, oldName, newName) => {
+    if (!oldName || oldName === newName) return;
+    for (const r of d.regions || []) {
+      if (r.selected === oldName) r.selected = newName;
+      if (r.best === oldName) r.best = newName;
+    }
+  };
+
+  const resolveSubNode = (sub, name) => {
+    if (!sub || !Array.isArray(sub.nodes)) return null;
+    const exact = sub.nodes.filter((n) => n.name === name);
+    if (exact.length > 1) return { ambiguous: true };
+    if (exact.length === 1) return { index: sub.nodes.indexOf(exact[0]), node: exact[0] };
+    const base = stripDedupeSuffix(name);
+    const cands = sub.nodes.filter((n) => n.name === base);
+    if (cands.length > 1) return { ambiguous: true };
+    if (cands.length === 1) return { index: sub.nodes.indexOf(cands[0]), node: cands[0] };
+    return null;
+  };
+
+  const nameTakenElsewhere = (state, subId, index, name) => {
+    const lower = String(name || '').toLowerCase();
+    for (const sub of state.subscriptions || []) {
+      if ((sub.nodes || []).some((n, i) => !(sub.id === subId && i === index) && String(n.name || '').toLowerCase() === lower)) return true;
+    }
+    for (const n of state.localNodes || []) {
+      if (String(n.name || '').toLowerCase() === lower) return true;
+    }
+    return false;
+  };
+
+  ipcMain.handle('sub:node:get', async (_e, { subId, name } = {}) => {
+    const sub = store.get().subscriptions.find((s) => s.id === subId);
+    if (!sub) return { ok: false, error: '订阅不存在' };
+    const found = resolveSubNode(sub, name);
+    if (!found || found.ambiguous) return { ok: false, error: found && found.ambiguous ? '该订阅内存在重名节点，暂不支持编辑' : '节点不存在，可能已被订阅更新覆盖' };
+    return { ok: true, subName: sub.name, subEnabled: sub.enabled !== false, node: { ...found.node } };
+  });
+
+  ipcMain.handle('sub:node:save', async (_e, { subId, name, node } = {}) => {
+    const sub = store.get().subscriptions.find((s) => s.id === subId);
+    if (!sub) return { ok: false, error: '订阅不存在' };
+    const found = resolveSubNode(sub, name);
+    if (!found || found.ambiguous) return { ok: false, error: found && found.ambiguous ? '该订阅内存在重名节点，暂不支持编辑' : '节点不存在，可能已被订阅更新覆盖' };
+    const rec = node && typeof node === 'object' ? node : {};
+    const old = found.node;
+    const newName = sanitizeProxyName(rec.name || old.name, old.name);
+    const server = String(rec.server || '').trim();
+    const port = Number(rec.port);
+    const type = String(rec.type || old.type || '').trim().toLowerCase();
+    if (!server) return { ok: false, error: '服务器不能为空' };
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return { ok: false, error: '端口需要是 1-65535 的整数' };
+    if (!/^[a-z0-9][a-z0-9-]{0,23}$/.test(type)) return { ok: false, error: '协议类型无效' };
+    if (newName.toLowerCase() !== old.name.toLowerCase()) {
+      const st = store.get();
+      if (nameTakenElsewhere(st, sub.id, found.index, newName)) return { ok: false, error: `已有节点使用名称「${newName}」，mihomo 不允许重名` };
+    }
+    const merged = { ...old, name: newName, type, server, port, udp: rec.udp !== false, enabled: rec.enabled !== false };
+    for (const key of ['password', 'uuid', 'username', 'cipher', 'sni', 'servername', 'alterId']) {
+      if (Object.prototype.hasOwnProperty.call(rec, key) && rec[key] !== undefined) merged[key] = rec[key];
+    }
+    delete merged.raw;
+    store.update((d) => {
+      const s = d.subscriptions.find((x) => x.id === subId);
+      if (!s || !Array.isArray(s.nodes)) return;
+      if (s.nodes[found.index]) s.nodes[found.index] = merged;
+      else {
+        const i = s.nodes.findIndex((n) => n.name === old.name);
+        if (i >= 0) s.nodes[i] = merged;
+      }
+      remapRegionNode(d, old.name, merged.name);
+    });
+    broadcastState();
+    const applied = await core.apply();
+    return { ok: true, name: merged.name, applied };
   });
 
   /* ---------------- 本地节点 server_local ---------------- */
@@ -332,16 +473,29 @@ function registerIpc({ store, core, rewrite, ca, getWindow, showWindow, quitApp,
   });
 
   ipcMain.handle('local:save', async (_e, { node }) => {
+    if (!node || typeof node !== 'object') return { ok: false, error: '节点数据无效' };
+    const server = String(node.server || '').trim();
+    const port = Number(node.port);
+    if (!server) return { ok: false, error: '服务器不能为空' };
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return { ok: false, error: '端口需要是 1-65535 的整数' };
+    const existing = (store.get().localNodes || []).find((x) => x.id === node.id);
+    const name = sanitizeProxyName(node.name || `${server}:${port}`, `${server}:${port}`);
+    if (existing && name.toLowerCase() !== String(existing.name || '').toLowerCase()) {
+      const taken = (store.get().localNodes || []).some((x) => x.id !== existing.id && String(x.name || '').toLowerCase() === name.toLowerCase())
+        || (store.get().subscriptions || []).some((s) => (s.nodes || []).some((n) => String(n.name || '').toLowerCase() === name.toLowerCase()));
+      if (taken) return { ok: false, error: `已有节点使用名称「${name}」，mihomo 不允许重名` };
+    }
     store.update((d) => {
-      const existing = (d.localNodes || []).find((x) => x.id === node.id);
-      const clean = { ...node };
+      const clean = { ...node, name, server, port };
       delete clean.raw;
-      if (existing) Object.assign(existing, clean);
+      const current = (d.localNodes || []).find((x) => x.id === node.id);
+      if (current) Object.assign(current, clean);
       else d.localNodes.push({ ...clean, id: clean.id || uid('ln'), enabled: clean.enabled !== false });
+      remapRegionNode(d, existing && existing.name, name);
     });
     broadcastState();
     await core.apply();
-    return { ok: true };
+    return { ok: true, name };
   });
 
   ipcMain.handle('local:remove', async (_e, { id }) => {
@@ -493,15 +647,29 @@ function registerIpc({ store, core, rewrite, ca, getWindow, showWindow, quitApp,
   ipcMain.handle('rewrite:start', async () => {
     if (!store.get().settings.rewriteEnabled) store.update((d) => { d.settings.rewriteEnabled = true; });
     const r = await rewrite.start();
-    if (r.ok && store.get().settings.systemProxy) await setSystemProxy(true, { port: effectiveProxyPort() });
+    let proxyChange = null;
+    if (r.ok) {
+      if (!store.get().settings.systemProxy) {
+        const sp = await setSystemProxy(true, { port: effectiveProxyPort() });
+        if (sp.ok) { store.update((d) => { d.settings.systemProxy = true; }); proxyChange = 'on'; }
+      } else {
+        await setSystemProxy(true, { port: effectiveProxyPort() });
+      }
+    }
     await broadcastRewrite();
-    return r;
+    broadcastState();
+    return { ...r, proxyChange };
   });
   ipcMain.handle('rewrite:stop', async () => {
     const r = await rewrite.stop();
-    if (store.get().settings.systemProxy) await setSystemProxy(true, { port: effectiveProxyPort() });
+    let proxyChange = null;
+    if (store.get().settings.systemProxy) {
+      const sp = await setSystemProxy(false, { port: store.get().settings.mixedPort });
+      if (sp.ok) { store.update((d) => { d.settings.systemProxy = false; }); proxyChange = 'off'; }
+    }
     await broadcastRewrite();
-    return r;
+    broadcastState();
+    return { ...r, proxyChange };
   });
   ipcMain.handle('rewrite:save', async (_e, { rule }) => {
     const allowed = new Set(['reject', 'redirect', 'rewrite', 'request-header', 'response-header', 'response-body']);
@@ -538,6 +706,127 @@ function registerIpc({ store, core, rewrite, ca, getWindow, showWindow, quitApp,
     broadcastState();
     return { ok: true };
   });
+
+  /* ---------------- 线上重写规则集 ---------------- */
+  const remoteSetMeta = (set) => {
+    if (!set) return null;
+    const { rules, ...rest } = set;
+    return { ...rest, rulesCount: (rules || []).length };
+  };
+
+  const failRemoteSet = (id, message) => {
+    store.update((d) => {
+      const s = (d.rewriteRemoteSets || []).find((x) => x.id === id);
+      if (s) { s.lastError = String(message || '更新失败').slice(0, 500); s.lastAttemptAt = Date.now(); }
+    });
+    broadcastState();
+  };
+
+  const updateRewriteRemoteSet = async (id) => {
+    const rec = (store.get().rewriteRemoteSets || []).find((s) => s.id === id);
+    if (!rec) return { ok: false, error: '线上规则集不存在' };
+    if (!/^https?:\/\//i.test(String(rec.url || ''))) {
+      const msg = '只支持 http(s) 链接';
+      failRemoteSet(id, msg);
+      return { ok: false, error: msg };
+    }
+    let res;
+    try {
+      res = await download(rec.url, { timeout: 20000, maxBytes: 4 * 1024 * 1024 });
+    } catch (err) {
+      const msg = '下载失败：' + (err.message || '未知错误');
+      failRemoteSet(id, msg);
+      return { ok: false, error: msg };
+    }
+    const parsed = parseRewriteText(res.text, { setName: rec.name });
+    if (!parsed.rules.length) {
+      const msg = parsed.warnings.join('；').slice(0, 500) || '未解析到任何规则';
+      failRemoteSet(id, msg);
+      return { ok: false, error: msg, warnings: parsed.warnings };
+    }
+    store.update((d) => {
+      const s = (d.rewriteRemoteSets || []).find((x) => x.id === id);
+      if (!s) return;
+      s.rules = parsed.rules;
+      s.rulesCount = parsed.rules.length;
+      s.updatedAt = Date.now();
+      s.lastAttemptAt = Date.now();
+      s.lastError = null;
+      s.lastWarnings = parsed.warnings.slice(0, 10);
+    });
+    broadcastState();
+    try { await broadcastRewrite(); } catch (_) {}
+    return { ok: true, rulesCount: parsed.rules.length, warnings: parsed.warnings };
+  };
+
+  ipcMain.handle('rewrite:remote:save', async (_e, { set: payload } = {}) => {
+    const input = payload && typeof payload === 'object' ? payload : {};
+    const name = String(input.name || '').trim();
+    const url = String(input.url || '').trim();
+    if (!name) return { ok: false, error: '请填写规则集名称' };
+    if (!/^https?:\/\//i.test(url)) return { ok: false, error: '规则集地址需要是 http(s) 链接' };
+    const interval = Number(input.interval);
+    if (!Number.isFinite(interval) || interval < 0 || interval > 10080) return { ok: false, error: '更新间隔需要是 0-10080 分钟' };
+    const id = String(input.id || '') || uid('rws');
+    let urlChanged = false;
+    store.update((d) => {
+      if (!Array.isArray(d.rewriteRemoteSets)) d.rewriteRemoteSets = [];
+      const idx = d.rewriteRemoteSets.findIndex((x) => x.id === id);
+      if (idx >= 0) {
+        urlChanged = String(d.rewriteRemoteSets[idx].url || '') !== url;
+        d.rewriteRemoteSets[idx] = {
+          ...d.rewriteRemoteSets[idx],
+          name: sanitizeProxyName(name, '线上规则集'),
+          url, interval,
+          enabled: input.enabled !== false,
+          ...(urlChanged ? { rules: [], rulesCount: 0, updatedAt: null, lastError: null } : {})
+        };
+      } else {
+        d.rewriteRemoteSets.push({
+          id, name: sanitizeProxyName(name, '线上规则集'), url, interval,
+          enabled: input.enabled !== false, updatedAt: null, rulesCount: 0, lastError: null, rules: []
+        });
+      }
+    });
+    broadcastState();
+    const rec = (store.get().rewriteRemoteSets || []).find((s) => s.id === id);
+    return { ok: true, set: remoteSetMeta(rec), urlChanged };
+  });
+
+  ipcMain.handle('rewrite:remote:remove', async (_e, { id } = {}) => {
+    store.update((d) => { d.rewriteRemoteSets = (d.rewriteRemoteSets || []).filter((s) => s.id !== id); });
+    broadcastState();
+    try { await broadcastRewrite(); } catch (_) {}
+    return { ok: true };
+  });
+
+  ipcMain.handle('rewrite:remote:update', async (_e, { id } = {}) => updateRewriteRemoteSet(id));
+
+  ipcMain.handle('rewrite:remote:updateAll', async () => {
+    const sets = (store.get().rewriteRemoteSets || []).filter((s) => s.enabled !== false && /^https?:\/\//i.test(String(s.url || '')));
+    const results = [];
+    for (const s of sets) {
+      try { results.push({ id: s.id, name: s.name, ...(await updateRewriteRemoteSet(s.id)) }); }
+      catch (err) { results.push({ id: s.id, name: s.name, ok: false, error: err.message }); }
+    }
+    return { ok: true, results };
+  });
+
+  /* 定时更新：每 10 分钟检查一次，按各规则集的 interval（分钟）判断是否到期 */
+  const dueRewriteRemotes = async () => {
+    const now = Date.now();
+    const due = (store.get().rewriteRemoteSets || []).filter((s) => {
+      if (s.enabled === false || !/^https?:\/\//i.test(String(s.url || ''))) return false;
+      const interval = Number(s.interval);
+      if (!Number.isFinite(interval) || interval <= 0) return false;
+      return !s.updatedAt || now - Number(s.updatedAt) > interval * 60 * 1000;
+    });
+    for (const s of due) {
+      try { await updateRewriteRemoteSet(s.id); } catch (_) {}
+    }
+  };
+  const remoteTimer = setInterval(() => { dueRewriteRemotes().catch(() => {}); }, 10 * 60 * 1000);
+  if (remoteTimer && typeof remoteTimer.unref === 'function') remoteTimer.unref();
   ipcMain.handle('mitm:saveHosts', async (_e, { hosts }) => {
     const list = [...new Set((Array.isArray(hosts) ? hosts : []).map((h) => String(h).trim().toLowerCase()).filter(Boolean))];
     if (list.length > 200 || list.some((h) => h.length > 253 || !/^[a-z0-9.*-]+$/.test(h))) return { ok: false, error: '主机名无效，仅支持域名、点和 * 通配符' };
@@ -564,7 +853,17 @@ function registerIpc({ store, core, rewrite, ca, getWindow, showWindow, quitApp,
 
   /* ---------------- 内核 ---------------- */
   ipcMain.handle('core:start', async () => { const r = await core.start(); refreshApi(); return r; });
-  ipcMain.handle('core:stop', async () => { const r = await core.stop(); return r; });
+  ipcMain.handle('core:stop', async () => {
+    const r = await core.stop();
+    // 内核停了重写引擎就没有上游：系统代理若还指着重写端口，走系统代理的程序会全部连不上。
+    if (r && r.ok && store.get().settings.systemProxy && rewrite && rewrite.snapshot().running) {
+      try { await setSystemProxy(false, { port: store.get().settings.mixedPort }); } catch (_) {}
+      store.update((d) => { d.settings.systemProxy = false; });
+      broadcastState();
+      send('toast', { kind: 'warn', message: '内核已停止，系统代理已自动关闭（重写引擎没有上游）' });
+    }
+    return r;
+  });
   ipcMain.handle('core:restart', async () => { const r = await core.restart(); refreshApi(); return r; });
   ipcMain.handle('core:apply', async () => { const r = await core.apply(); refreshApi(); return r; });
   ipcMain.handle('core:validate', async () => {
@@ -674,8 +973,11 @@ function registerIpc({ store, core, rewrite, ca, getWindow, showWindow, quitApp,
   ipcMain.handle('net:systemProxy', async (_e, { enable }) => {
     const port = effectiveProxyPort();
     const r = await setSystemProxy(!!enable, { port });
-    store.update((d) => { d.settings.systemProxy = !!enable; });
-    broadcastState();
+    // 写注册表失败就不要把 settings 也改成"已接管"，否则界面会和真实状态打架。
+    if (r.ok) {
+      store.update((d) => { d.settings.systemProxy = !!enable; });
+      broadcastState();
+    }
     return { ok: r.ok, state: r };
   });
 

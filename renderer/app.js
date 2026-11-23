@@ -264,6 +264,20 @@ function StatusBar() {
   </footer>`;
 }
 
+/** 左下角连接状态：显示「订阅名 / 节点名」，订阅匹配不到时退回节点名 */
+function connectionLabel() {
+  if (!S.core.running) return '点击启动内核';
+  const target = (S.state && S.state.settings.defaultTarget) || '主策略';
+  const proxies = (S.runtime && S.runtime.proxies && S.runtime.proxies.proxies) || {};
+  const root = proxies[target] || {};
+  const name = root.now || target;
+  const info = (S.nodes || []).find((n) => n.name === name);
+  if (!info) return name;
+  const sub = ((S.state && S.state.subscriptions) || []).find((s) => s.id === info.sourceId);
+  const source = sub ? sub.name : (info.sourceId === 'local' ? '本地节点' : (info.source || ''));
+  return source && source !== name ? `${source} / ${name}` : name;
+}
+
 function Rail() {
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem('wallnut.rail') === '1'; } catch (_) { return false; }
@@ -275,9 +289,7 @@ function Rail() {
   };
   const LEGACY_PAGE = { regions: 'groups', subs: 'nodes' };
   const pageId = LEGACY_PAGE[S.page] || S.page;
-  const target = (S.state && S.state.settings.defaultTarget) || '主策略';
-  const proxies = (S.runtime && S.runtime.proxies && S.runtime.proxies.proxies) || {};
-  const node = S.core.running ? ((proxies[target] && proxies[target].now) || target) : '点击启动内核';
+  const node = connectionLabel();
 
   return html`<aside class=${'rail' + (collapsed ? ' collapsed' : '')}>
     <div class="rail-head">
@@ -305,7 +317,7 @@ function Rail() {
     </nav>
 
     <div class="rail-foot">
-      <button class="conn-pill" title=${S.core.running ? '断开（停止内核）' : '连接（启动内核）'}
+      <button class="conn-pill" title=${S.core.running ? node + ' · 断开（停止内核）' : '连接（启动内核）'}
         onClick=${async () => {
           if (S.core.running) { await call('core:stop'); toast('内核已停止', 'info'); }
           else { await call('core:start'); }

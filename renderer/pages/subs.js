@@ -30,6 +30,7 @@ function SubRow({ sub, onEdit }) {
       <div class="sub-acts">
         <button class="btn sm" disabled=${busy} onClick=${update}>${busy ? html`<${Spinner} />` : html`<${Icon} name="refresh" />`}更新</button>
         <${Switch} on=${sub.enabled !== false} onChange=${(v) => call('sub:toggle', { id: sub.id, enabled: v })} />
+        <button class="btn ghost sm" title="编辑订阅" onClick=${() => onEdit && onEdit(sub)}><${Icon} name="edit" /></button>
         <button class="btn ghost sm danger" title="删除订阅" onClick=${async () => {
           if (!confirm(`删除订阅「${sub.name}」？其节点会从所有策略组移除。`)) return;
           await call('sub:remove', { id: sub.id });
@@ -125,6 +126,55 @@ function AddSubModal({ onClose }) {
           <textarea class="textarea" style="min-height:180px" value=${text} placeholder="ss://… 或 [server_local] 段…" onInput=${(e) => setText(e.target.value)}></textarea>
         </${Field}>`}
     <span class="sub">导入后自动重建配置；更新间隔在设置页调整。</span>
+  </${Modal}>`;
+}
+
+function SubEditModal({ sub, onClose }) {
+  const inline = String(sub.url || '').startsWith('inline:');
+  const [name, setName] = useState(sub.name || '');
+  const [url, setUrl] = useState(inline ? '' : (sub.url || ''));
+  const [interval, setInterval] = useState(String(sub.interval == null ? 1440 : sub.interval));
+  const [insecure, setInsecure] = useState(sub.insecure === true);
+  const [enabled, setEnabled] = useState(sub.enabled !== false);
+  const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState('');
+
+  const save = async () => {
+    if (!name.trim()) return toast('请填写订阅名称', 'error');
+    if (!inline && !/^https?:\/\//i.test(url.trim())) return toast('订阅地址需要是 http(s) 链接', 'error');
+    const mins = Number(interval);
+    if (!Number.isFinite(mins) || mins < 0 || mins > 10080) return toast('更新间隔需要是 0-10080 分钟', 'error');
+    setBusy(true);
+    setPhase('正在保存…');
+    const payload = { id: sub.id, name: name.trim(), interval: mins, insecure, enabled };
+    if (!inline) payload.url = url.trim();
+    const r = await call('sub:save', payload);
+    setBusy(false);
+    setPhase('');
+    if (!r || !r.ok) return toast((r && r.error) || '保存失败', 'error', 5000);
+    if (r.urlChanged) toast(`订阅已保存，已重新拉取 ${r.nodeCount || 0} 个节点`, 'ok', 4200);
+    else toast('订阅已保存', 'ok');
+    onClose();
+  };
+
+  return html`<${Modal} title="编辑订阅" onClose=${onClose} width="640px"
+    foot=${html`<button class="btn" onClick=${onClose}>取消</button>
+      <button class="btn primary" disabled=${busy} onClick=${save}>${busy ? (phase || '保存中…') : '保存'}</button>`}>
+    <div class="form-grid">
+      <${Field} label="名称" style="grid-column:1 / -1"><${Input} value=${name} placeholder="例如：机场 A" onInput=${(e) => setName(e.target.value)} /></${Field}>
+      <${Field} label=${inline ? '订阅地址' : '订阅地址（http/https）'} style="grid-column:1 / -1">
+        ${inline
+          ? html`<${Input} value="本地导入内容，地址不可修改" disabled=${true} />`
+          : html`<${Input} cls="mono" value=${url} placeholder="https://example.com/api/v1/client/subscribe?token=…" onInput=${(e) => setUrl(e.target.value)} />`}
+      </${Field}>
+      <${Field} label="自动更新间隔（分钟，0 为仅手动）"><${Input} value=${interval} placeholder="1440" onInput=${(e) => setInterval(e.target.value)} /></${Field}>
+      <${Field} label="启用"><${Switch} on=${enabled} sm=${false} onChange=${setEnabled} /></${Field}>
+    </div>
+    <div class="set-row" style="padding-left:0;padding-right:0">
+      <div class="sl"><span>跳过证书校验</span><span class="note-grey">仅自签名证书的订阅源需要；开启后链接可能被中间人替换</span></div>
+      <${Switch} on=${insecure} onChange=${setInsecure} />
+    </div>
+    <span class="sub">${inline ? '这是粘贴导入的订阅，只能改名称与更新策略。' : '修改订阅地址后会自动重新下载并重建节点与策略组；只改名称或间隔不会重新拉取。'}</span>
   </${Modal}>`;
 }
 
@@ -255,6 +305,7 @@ export function SubsPanel() {
   const [adding, setAdding] = useState(false);
   const [pasting, setPasting] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [subEditing, setSubEditing] = useState(null);
   const [busyAll, setBusyAll] = useState(false);
   const dmap = delayMap();
 
@@ -280,7 +331,7 @@ export function SubsPanel() {
     ${tab === 'subs'
       ? (S.state.subscriptions.length
           ? html`<div class="sub-grid">
-              ${S.state.subscriptions.map((sub) => html`<${SubRow} key=${sub.id} sub=${sub} />`)}
+              ${S.state.subscriptions.map((sub) => html`<${SubRow} key=${sub.id} sub=${sub} onEdit=${setSubEditing} />`)}
             </div>`
           : html`<${Empty} icon="download" title="还没有订阅" sub="支持 Clash / mihomo YAML、QX conf、Surge conf、节点分享链接和 base64。导入后节点会自动按国家聚合到地区组。">
               <div class="row">
@@ -320,6 +371,7 @@ export function SubsPanel() {
     ${adding ? html`<${AddSubModal} onClose=${() => setAdding(false)} />` : null}
     ${pasting ? html`<${PasteModal} onClose=${() => setPasting(false)} />` : null}
     ${editing ? html`<${LocalNodeModal} initial=${editing} onClose=${() => setEditing(null)} />` : null}
+    ${subEditing ? html`<${SubEditModal} sub=${subEditing} onClose=${() => setSubEditing(null)} />` : null}
   </div>`;
 }
 

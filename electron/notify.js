@@ -2,6 +2,7 @@
 
 const { Notification, nativeImage } = require('electron');
 const fs = require('fs');
+const i18n = require('./i18n');
 
 let prefEnabled = () => true;
 let iconPath = null;
@@ -22,14 +23,14 @@ function notify(opts = {}) {
   try {
     if (!prefEnabled()) return { ok: false, via: 'disabled' };
     const icon = iconPath && fs.existsSync(iconPath) ? nativeImage.createFromPath(iconPath) : undefined;
-    const title = opts.title || 'Wallnut';
-    const body = opts.body || '';
+    const title = i18n.tr(opts.title || 'Wallnut');
+    const body = i18n.tr(opts.body || '');
 
     const tray = getTray();
     // 便携版没有开始菜单 AUMID 快捷方式，Windows Toast 会把发送者显示为 Electron。
     // 使用托盘系统气泡可保留 Wallnut 图标和标题，且不向文件夹外写任何文件。
     if (process.env.WALLNUT_PORTABLE === '1' && tray && typeof tray.displayBalloon === 'function') {
-      tray.displayBalloon({ title: 'Wallnut', content: body, icon, respectQuietTime: false });
+      tray.displayBalloon({ title, content: body, icon, respectQuietTime: false });
       return { ok: true, via: 'balloon' };
     }
 
@@ -41,7 +42,7 @@ function notify(opts = {}) {
     }
 
     if (tray && typeof tray.displayBalloon === 'function') {
-      tray.displayBalloon({ title: 'Wallnut', content: body, icon, respectQuietTime: false });
+      tray.displayBalloon({ title, content: body, icon, respectQuietTime: false });
       return { ok: true, via: 'balloon' };
     }
     return { ok: false, via: 'none' };

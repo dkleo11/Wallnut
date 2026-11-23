@@ -1,6 +1,6 @@
 /* 重写：本地 HTTP 重写代理 + 可选 MITM（只对白名单域名终止 TLS） */
 
-import { html, Icon, PageHead, Tag, Switch, Empty, Modal, Input, useStore, useState, useEffect } from '../ui.js';
+import { html, Icon, PageHead, Tag, Switch, Empty, Modal, Input, Field, Spinner, timeAgo, useStore, useState, useEffect } from '../ui.js';
 import { S, call, toast, saveSettings, set, setPage } from '../store.js';
 
 const TYPES = [
@@ -78,6 +78,79 @@ function HostsModal({ onClose }) {
   </${Modal}>`;
 }
 
+function maskRemoteUrl(url = '') {
+  const text = String(url || '');
+  try {
+    const u = new URL(text);
+    return u.host + (u.pathname && u.pathname !== '/' ? u.pathname.slice(0, 32) + (u.pathname.length > 32 ? '…' : '') : '');
+  } catch (_) {
+    return text.length > 60 ? text.slice(0, 60) + '…' : text;
+  }
+}
+
+/** 线上规则集编辑：名称 / URL / 更新间隔 / 启用 */
+function RemoteSetModal({ initial, onClose }) {
+  const s = initial || {};
+  const [name, setName] = useState(s.name || '');
+  const [url, setUrl] = useState(s.url || '');
+  const [interval, setInterval] = useState(String(s.interval == null ? 1440 : s.interval));
+  const [enabled, setEnabled] = useState(s.enabled !== false);
+  const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState('');
+
+  const save = async () => {
+    if (!name.trim()) return toast('请填写规则集名称', 'error');
+    if (!/^https?:\/\//i.test(url.trim())) return toast('规则集地址需要是 http(s) 链接', 'error');
+    const mins = Number(interval);
+    if (!Number.isFinite(mins) || mins < 0 || mins > 10080) return toast('更新间隔需要是 0-10080 分钟', 'error');
+    setBusy(true);
+    setPhase('正在保存…');
+    const r = await call('rewrite:remote:save', {
+      set: { id: s.id, name: name.trim(), url: url.trim(), interval: mins, enabled }
+    });
+    if (!r || !r.ok) { setBusy(false); setPhase(''); return; }
+    if (enabled) {
+      setPhase('正在下载并解析规则…');
+      const u = await call('rewrite:remote:update', { id: r.set.id });
+      setBusy(false);
+      setPhase('');
+      if (u && u.ok) {
+        toast(`已添加「${name.trim()}」：${u.rulesCount} 条规则${u.warnings && u.warnings.length ? `，跳过 ${u.warnings.length} 行` : ''}`, 'ok', 4200);
+      } else {
+        toast('规则集已保存，但首次下载解析失败，可稍后点「更新」重试', 'error', 5000);
+      }
+      onClose();
+      return;
+    }
+    setBusy(false);
+    setPhase('');
+    toast(s.id ? '规则集已保存' : '规则集已添加', 'ok');
+    onClose();
+  };
+
+  return html`<${Modal} title=${s.id ? '编辑线上规则集' : '添加线上规则集'} onClose=${onClose} width="620px"
+    foot=${html`<button class="btn" onClick=${onClose}>取消</button>
+      <button class="btn primary" disabled=${busy} onClick=${save}>${busy ? (phase || '保存中…') : '保存'}</button>`}>
+    <div class="form-grid">
+      <${Field} label="名称" style="grid-column:1 / -1"><${Input} value=${name} placeholder="例如：广告拦截 rewrite" onInput=${(e) => setName(e.target.value)} /></${Field}>
+      <${Field} label="规则集地址（http/https）" style="grid-column:1 / -1">
+        <${Input} value=${url} placeholder="https://example.com/rewrite.conf" onInput=${(e) => setUrl(e.target.value)} />
+      </${Field}>
+      <${Field} label="自动更新间隔（分钟，0 为仅手动）">
+        <${Input} value=${interval} placeholder="1440" onInput=${(e) => setInterval(e.target.value)} />
+      </${Field}>
+      <${Field} label="启用">
+        <${Switch} on=${enabled} sm=${false} onChange=${setEnabled} />
+      </${Field}>
+    </div>
+    <div class="set-row" style="padding-left:0;padding-right:0">
+      <div class="sl"><span>立即启用并下载</span><span class="note-grey">保存后会立刻下载一次，解析失败会记录到规则集状态</span></div>
+      <span class="sub">${enabled ? '将启用' : '暂不启用'}</span>
+    </div>
+    <span class="sub">支持 Quantumult X / Surge 常见 rewrite 行：<span class="mono">url reject</span>、<span class="mono">url 302</span>、<span class="mono">url request-header</span>、<span class="mono">url response-header</span>、<span class="mono">url response-body</span>。脚本类规则会跳过并提示。</span>
+  </${Modal}>`;
+}
+
 export default function Rewrite() {
   useStore();
   const [modal, setModal] = useState(null);
@@ -86,6 +159,9 @@ export default function Rewrite() {
   const ca = S.ca || {};
   const rules = S.state.rewrites || [];
   const hosts = S.state.mitmHosts || [];
+  const remotes = S.state.rewriteRemoteSets || [];
+  const [remoteBusy, setRemoteBusy] = useState({});
+  const remoteRules = remotes.reduce((a, s2) => a + (s2.rulesCount || 0), 0);
   const enabled = st.rewriteEnabled === true;
   const mitm = st.mitmEnabled === true;
   const active = rules.filter((r) => r.enabled !== false).length;
@@ -96,9 +172,24 @@ export default function Rewrite() {
   useEffect(() => { refresh(); }, []);
 
   const toggle = async (v) => {
-    if (v && st.tunEnabled) toast('TUN 不经过本地 HTTP 重写代理，请使用系统代理模式', 'info', 5000);
-    await saveSettings({ rewriteEnabled: v });
+    const r = await saveSettings({ rewriteEnabled: v });
     await refresh();
+    if (!r || !r.ok) return;
+    const noCore = !(S.core && S.core.running);
+    if (r.proxyChange === 'on') {
+      const base = st.tunEnabled
+        ? '重写已启用，已自动开启系统代理（TUN 保持开启，仅走系统代理的应用经过重写）'
+        : '重写已启用，已自动开启系统代理并指向重写端口';
+      toast(noCore ? base + '；注意：内核未运行，重写上游暂不可用' : base, 'ok', 5000);
+    } else if (r.proxyChange === 'off') {
+      toast(st.tunEnabled
+        ? '重写已关闭，系统代理已关闭'
+        : '重写已关闭，系统代理已关闭（当前未启用 TUN，网络将退回直连）', 'info', 5000);
+    } else if (v) {
+      toast('重写已启用，系统代理已指向重写端口', 'ok');
+    } else {
+      toast('重写已关闭（系统代理原本就未开启）', 'info');
+    }
   };
   const toggleMitm = async (v) => {
     if (v && !ca.installed) return toast('请先在「证书」页生成并安装 Wallnut Root CA', 'error');
@@ -109,10 +200,33 @@ export default function Rewrite() {
     if (!confirm(`删除这条重写规则？\n${r.pattern}`)) return;
     await call('rewrite:remove', { id: r.id });
   };
+  const updateRemote = async (rec) => {
+    setRemoteBusy((b) => ({ ...b, [rec.id]: true }));
+    const r = await call('rewrite:remote:update', { id: rec.id });
+    setRemoteBusy((b) => { const n = { ...b }; delete n[rec.id]; return n; });
+    if (r && r.ok) toast(`「${rec.name}」已更新：${r.rulesCount} 条规则${r.warnings && r.warnings.length ? `，跳过 ${r.warnings.length} 行` : ''}`, 'ok', 4200);
+  };
+  const updateAllRemote = async () => {
+    if (!remotes.length) return;
+    const busy = {};
+    for (const rec of remotes) busy[rec.id] = true;
+    setRemoteBusy(busy);
+    const r = await call('rewrite:remote:updateAll', {}, { silent: true });
+    setRemoteBusy({});
+    if (r && r.ok) {
+      const okCount = r.results.filter((x) => x.ok).length;
+      toast(`线上规则集：${okCount}/${r.results.length} 个更新成功`, okCount === r.results.length ? 'ok' : 'error', 5000);
+    }
+  };
+  const removeRemote = async (rec) => {
+    if (!confirm(`删除线上规则集「${rec.name}」？`)) return;
+    await call('rewrite:remote:remove', { id: rec.id });
+    toast('已删除线上规则集', 'ok');
+  };
   const mb = ((rw.bytes || 0) / 1048576).toFixed(1);
 
   return html`<div class="page">
-    <${PageHead} title="重写" sub=${`${active}/${rules.length} 条启用 · ${hosts.length} 个解密主机`}>
+    <${PageHead} title="重写" sub=${`${active}/${rules.length} 条启用 · ${remotes.length} 个线上规则集（${remoteRules} 条） · ${hosts.length} 个解密主机`}>
       <button class="btn sm ghost" onClick=${refresh}><${Icon} name="refresh" />刷新</button>
       <button class="btn sm primary" onClick=${() => setModal({ type: 'rule' })}><${Icon} name="plus" />添加规则</button>
     </${PageHead}>
@@ -144,7 +258,7 @@ export default function Rewrite() {
             <button class="btn primary" onClick=${() => setModal({ type: 'rule' })}><${Icon} name="plus" />添加规则</button>
           </${Empty}>`}
         </div>
-        <div class="rw-note"><${Icon} name="info" /><span>仅在系统代理指向 Wallnut 时生效；TUN 模式下不经过重写。</span></div>
+        <div class="rw-note"><${Icon} name="info" /><span>开启时会自动把系统代理指向重写端口；TUN 下仅走系统代理的应用经过重写。</span></div>
       </div>
 
       <div class="mitm-col">
@@ -171,8 +285,39 @@ export default function Rewrite() {
       </div>
     </div>
 
+    <div class="card rule-card" style="margin-top:12px">
+      <div class="rw-head"><span class="rw-title">线上规则集</span><span class="rw-count">${remotes.length} 个 · ${remoteRules} 条规则</span>
+        <span class="grow"></span>
+        <button class="btn sm ghost" disabled=${!remotes.length || Object.keys(remoteBusy).length > 0} onClick=${updateAllRemote}>
+          <${Icon} name="refresh" />全部更新
+        </button>
+        <button class="btn sm primary" onClick=${() => setModal({ type: 'remote' })}><${Icon} name="plus" />添加规则集</button>
+      </div>
+      <div class="rule-list">
+        ${remotes.length ? remotes.map((rec) => html`<div class=${'rule-row' + (rec.enabled === false ? ' disabled' : '')} key=${rec.id}>
+          <span class="rule-tag"><${Tag} cls=${rec.enabled === false ? 'grey' : (rec.lastError ? 'warn' : 'ok')}>${rec.enabled === false ? '停用' : (rec.lastError ? '异常' : '启用')}</${Tag}></span>
+          <span class="rule-main" title=${rec.url}>
+            <span class="rule-match">${rec.name}</span>
+            <span class="rule-act"><b>${rec.rulesCount || 0} 条规则</b><span class="sub">· ${maskRemoteUrl(rec.url)}</span></span>
+            <span class="rule-act"><span class="sub">更新于 ${timeAgo(rec.updatedAt)} · ${rec.interval ? '每 ' + rec.interval + ' 分钟' : '仅手动'}${rec.enabled !== false && !rec.updatedAt ? ' · 等待首次更新' : ''}</span></span>
+            ${rec.lastError ? html`<span class="rule-act c-red" title=${rec.lastError}><span class="sub c-red">${rec.lastError}</span></span>` : null}
+          </span>
+          <button class="btn ghost sm" title="立即更新" disabled=${!!remoteBusy[rec.id]} onClick=${() => updateRemote(rec)}>
+            ${remoteBusy[rec.id] ? html`<${Spinner} />` : html`<${Icon} name="refresh" />`}
+          </button>
+          <button class="btn ghost sm" title="编辑规则集" onClick=${() => setModal({ type: 'remote', set: rec })}><${Icon} name="edit" /></button>
+          <button class="btn ghost sm danger" title="删除规则集" onClick=${() => removeRemote(rec)}><${Icon} name="trash" /></button>
+          <${Switch} on=${rec.enabled !== false} onChange=${(v) => call('rewrite:remote:save', { set: { ...rec, enabled: v } })} />
+        </div>`) : html`<${Empty} icon="download" title="还没有线上规则集" sub="填写 http(s) 链接即可定时拉取 Quantumult X / Surge rewrite 规则，启用后与本地规则合并。">
+          <button class="btn primary" onClick=${() => setModal({ type: 'remote' })}><${Icon} name="plus" />添加规则集</button>
+        </${Empty}>`}
+      </div>
+      <div class="rw-note"><${Icon} name="info" /><span>线上规则按间隔自动下载解析，启用后与本地重写规则合并生效；本地规则优先命中。订阅式规则更新会整体替换该规则集的规则。</span></div>
+    </div>
+
     ${modal?.type === 'rule' ? html`<${RuleModal} initial=${modal.rule} onClose=${() => setModal(null)} />` : null}
     ${modal?.type === 'hosts' ? html`<${HostsModal} onClose=${() => setModal(null)} />` : null}
+    ${modal?.type === 'remote' ? html`<${RemoteSetModal} initial=${modal.set} onClose=${() => setModal(null)} />` : null}
   </div>`;
 }
 
