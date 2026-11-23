@@ -8,7 +8,7 @@
 
 **Wallnut** is a desktop proxy client for Windows: an Electron shell with a bundled [mihomo](https://github.com/MetaCubeX/mihomo) core. Portable, no installation required.
 
-**Name**: "Wallnut" reads as *wall-nut*, a pun on **wall-not** — and a nod to the **wall-nut** in *Plants vs. Zombies*: the one that stands in front and takes the hits.
+**Name**: "Wallnut" reads as *wall-nut*, a pun on **wall-not** — and a nod to the **wall-nut** in *Plants vs. Zombies*.
 
 ## Features
 

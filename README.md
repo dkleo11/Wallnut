@@ -8,7 +8,7 @@
 
 **Wallnut** 是一个面向 Windows 的桌面代理客户端：Electron 外壳 + 内置 [mihomo](https://github.com/MetaCubeX/mihomo) 内核，便携运行、无需安装。
 
-**名字由来**：Wallnut 读作「wall-nut」，谐音 **wall-not**；同时也是对《植物大战僵尸》里**坚果墙**的致敬——站在最前面挨打。中文名就叫「坚果墙」。
+**名字由来**：Wallnut 读作「wall-nut」，谐音 **wall-not**；同时也是对《植物大战僵尸》里**坚果墙**的致敬。中文名就叫「坚果墙」。
 
 ## 功能
 
