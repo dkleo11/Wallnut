@@ -945,16 +945,15 @@ html:not(.dark) .rail { background: linear-gradient(180deg, rgba(255, 255, 255, 
   width: 3px; height: 16px; border-radius: 0 3px 3px 0; background: var(--blue); box-shadow: 0 0 10px rgba(10, 132, 255, .8); }
 
 .rail-foot { flex: none; padding-top: 8px; border-top: 1px solid var(--line); }
-.conn-pill { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 54px; padding: 6px 10px;
+.conn-pill { display: flex; align-items: center; gap: 8px; width: 100%; height: 46px; padding: 0 10px;
   border-radius: 12px; background: var(--fill); border: 1px solid var(--line); text-align: left;
   transition: background .18s var(--ease), border-color .18s var(--ease); }
 .conn-pill:hover { background: var(--fill-2); border-color: var(--line-2); }
 .conn-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ctrl); flex: none; }
 .window[data-on="1"] .conn-pill .dot { background: var(--blue); box-shadow: 0 0 0 3px rgba(10, 132, 255, .16), 0 0 12px rgba(10, 132, 255, .6); }
-.conn-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
-.conn-txt b { font-size: 11.5px; font-weight: 650; line-height: 1.35; }
-.conn-txt .conn-sub { font-size: 9.5px; line-height: 1.3; color: var(--sub); opacity: .78; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.conn-txt .conn-node { font-size: 10px; line-height: 1.3; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conn-txt { display: flex; flex-direction: column; justify-content: center; gap: 2px; min-width: 0; flex: 1; }
+.conn-txt b { font-size: 11.5px; font-weight: 650; line-height: 1.25; }
+.conn-txt .conn-detail { font-size: 10px; line-height: 1.25; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .conn-pill > .ico { width: 14px; height: 14px; color: var(--sub); }
 .window[data-on="1"] .conn-pill > .ico { color: var(--t-blue); }
 

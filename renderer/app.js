@@ -342,9 +342,7 @@ function Rail() {
         <span class="dot"></span>
         <span class="conn-txt">
           <b>${S.core.running ? '已连接' : '未连接'}</b>
-          ${conn.pending
-            ? html`<span class="conn-node">${conn.text}</span>`
-            : html`${conn.sub ? html`<span class="conn-sub">${conn.sub}</span>` : null}<span class="conn-node">${conn.node}</span>`}
+          <span class="conn-detail">${conn.text}</span>
         </span>
         <${Icon} name="power" cls="ico-14" />
       </button>
