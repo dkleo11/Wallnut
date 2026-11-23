@@ -272,7 +272,7 @@ export default function Settings() {
         <div class="set-group">
           <div class="set-label">关于</div>
           <div class="set-card">
-            <div class="about-row"><span>Wallnut</span><span class="about-val">0.5.0</span></div>
+            <div class="about-row"><span>Wallnut</span><span class="about-val">0.5.1</span></div>
             <div class="about-row"><span>内核</span><span class="about-val">${S.core.version || 'mihomo'}</span></div>
             <div class="about-row"><span>许可证</span><span class="about-val">GPL-3.0</span></div>
             <div class="about-row"><span>项目地址</span>

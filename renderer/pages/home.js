@@ -191,8 +191,9 @@ export default function Home() {
   const up = hist.map((h) => h.up || 0);
   const curDown = fmtSpeed(S.traffic.down);
   const curUp = fmtSpeed(S.traffic.up);
-  const total = fmtBytes(S.traffic.downTotal || 0);
+  const totalDown = fmtBytes(S.traffic.downTotal || 0);
   const totalUp = fmtBytes(S.traffic.upTotal || 0);
+  const total = fmtBytes((S.traffic.downTotal || 0) + (S.traffic.upTotal || 0));
   const mem = S.runtime.memory;
 
   const toggle = async () => {
@@ -235,7 +236,7 @@ export default function Home() {
           <div class="metric clickable" role="button" tabIndex="0" title="查看网络活动"
             onClick=${() => setPage('activity')} onKeyDown=${(e) => { if (e.key === 'Enter') setPage('activity'); }}>
             <span class="k">今日流量</span>
-            <div class="mv">${total.v} ${total.u}<span class="sub">· 上行 ${totalUp.v} ${totalUp.u}</span></div>
+            <div class="mv">${total.v} ${total.u}<span class="sub">· 下行 ${totalDown.v} ${totalDown.u} · 上行 ${totalUp.v} ${totalUp.u}</span></div>
           </div>
           <div class="metric clickable" role="button" tabIndex="0" title="查看活跃连接"
             onClick=${() => setPage('activity')} onKeyDown=${(e) => { if (e.key === 'Enter') setPage('activity'); }}>

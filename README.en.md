@@ -2,7 +2,7 @@
 
 [简体中文](README.md) · **English**
 
-![version](https://img.shields.io/badge/version-0.5.0-0A84FF) ![platform](https://img.shields.io/badge/platform-Windows%2010%2F11-34C759) ![core](https://img.shields.io/badge/core-mihomo-5E5CE6)
+![version](https://img.shields.io/badge/version-0.5.1-0A84FF) ![platform](https://img.shields.io/badge/platform-Windows%2010%2F11-34C759) ![core](https://img.shields.io/badge/core-mihomo-5E5CE6)
 
 ---
 
@@ -25,9 +25,9 @@
 
 ## Download
 
-Grab `Wallnut-v0.5.0-portable-win-x64.zip` from **Releases**:
+Grab `Wallnut-v0.5.1-portable-win-x64.zip` from **Releases**:
 
-1. Download `Wallnut-v0.5.0-portable-win-x64.zip`
+1. Download `Wallnut-v0.5.1-portable-win-x64.zip`
 2. Unzip anywhere (no install needed)
 3. Run `Wallnut.exe`
 4. Add your own subscription in the app
@@ -85,7 +85,14 @@ package.json
 
 ## Changelog
 
-### 0.5.0 — 2026-11-23
+### 0.5.1 — 2026-11-23
+
+**Improved**
+
+- Bottom-left connection pill reworked into two lines: status on top, "subscription / node" merged into a single line below, with consistent height, line spacing and padding
+- Home "Today's traffic" now shows the up + down total, with down and up listed separately in the subtitle
+
+### 0.5.1 — 2026-11-23
 
 **Added**
 

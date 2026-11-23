@@ -2,7 +2,7 @@
 
 **简体中文** · [English](README.en.md)
 
-![version](https://img.shields.io/badge/version-0.5.0-0A84FF) ![platform](https://img.shields.io/badge/platform-Windows%2010%2F11-34C759) ![core](https://img.shields.io/badge/core-mihomo-5E5CE6)
+![version](https://img.shields.io/badge/version-0.5.1-0A84FF) ![platform](https://img.shields.io/badge/platform-Windows%2010%2F11-34C759) ![core](https://img.shields.io/badge/core-mihomo-5E5CE6)
 
 ---
 
@@ -27,7 +27,7 @@
 
 到仓库的 **Releases** 页面下载最新便携包：
 
-1. 下载 `Wallnut-v0.5.0-portable-win-x64.zip`
+1. 下载 `Wallnut-v0.5.1-portable-win-x64.zip`
 2. 解压到任意目录（不需要安装）
 3. 运行 `Wallnut.exe`
 4. 在界面里添加自己的订阅
@@ -85,7 +85,14 @@ package.json
 
 ## 更新记录
 
-### 0.5.0 — 2026-11-23
+### 0.5.1 — 2026-11-23
+
+**改进**
+
+- 左下角连接状态改为两行排版：上行「已连接」，下行「订阅 / 节点」合并为一行，胶囊高度、行距与上下留白统一，不再三行堆叠
+- 首页「今日流量」改为上行 + 下行合计，副标题分别列出下行与上行
+
+### 0.5.1 — 2026-11-23
 
 **新增**
 
