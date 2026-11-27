@@ -49,13 +49,18 @@ class SpeedTestRunner {
         if (this.cancelled) return;
         results.push(res);
         done += 1;
-        onProgress({ type: 'result', ...res, done, total });
+        try { onProgress({ type: 'result', ...res, done, total }); } catch (_) { /* 进度回调失败不应中断测速 */ }
       }
     };
 
     const pool = Array.from({ length: Math.max(1, Math.min(concurrency, total || 1)) }, worker);
-    await Promise.all(pool);
-    this.running = false;
+    try {
+      await Promise.all(pool);
+    } finally {
+      // 必须复位：onProgress 回调里一旦抛错（它要走 IPC 广播），
+      // 原来会让 running 永久保持 true，之后所有测速都报「已有任务进行中」。
+      this.running = false;
+    }
 
     const ok = results.filter((r) => r.ok && r.delay > 0).sort((a, b) => a.delay - b.delay);
     const failed = results.filter((r) => !r.ok || !r.delay);

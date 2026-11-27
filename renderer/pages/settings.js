@@ -67,6 +67,8 @@ export default function Settings() {
   useEffect(() => { refreshSys(); }, []);
 
   const set = (patch) => saveSettings(patch);
+  const autoSw = st.autoSwitch || {};
+  const setAuto = (patch) => saveSettings({ autoSwitch: { ...autoSw, ...patch } }, { silent: true });
   const setDns = (patch) => saveSettings({ dns: { ...dns, ...patch } }, { silent: true });
 
   return html`<div style="display:flex;flex-direction:column;gap:12px;min-height:0">
@@ -270,9 +272,31 @@ export default function Settings() {
         </div>
 
         <div class="set-group">
+          <div class="set-label">节点自动切换</div>
+          <div class="set-card">
+            <${Row} label="过慢自动切换"
+              note=${autoSw.enabled === false ? '已关闭，节点变慢不会自动处理' : `每 ${autoSw.intervalSec || 30} 秒检查当前节点，连续两次超过 ${autoSw.slowMs || 1200}ms 或不通就换到更快的节点（热切换，不会断流）`}>
+              <${Switch} on=${autoSw.enabled !== false} onChange=${(v) => setAuto({ enabled: v })} />
+            </${Row}>
+            ${autoSw.enabled !== false ? html`
+              <${NumRow} label="检查间隔" unit="秒" value=${autoSw.intervalSec || 30} min=${10} max=${600}
+                onCommit=${(v) => setAuto({ intervalSec: v })} />
+              <${NumRow} label="慢节点阈值" unit="ms" note="高于此延迟视为过慢" value=${autoSw.slowMs || 1200} min=${200} max=${20000}
+                onCommit=${(v) => setAuto({ slowMs: v })} />
+              <${NumRow} label="切换冷却" unit="秒" note="两次自动切换的最短间隔，避免来回跳" value=${autoSw.cooldownSec || 120} min=${10} max=${3600}
+                onCommit=${(v) => setAuto({ cooldownSec: v })} />
+              <${Row} label="最近一次检查"
+                note=${S.core && S.core.autoSwitch && S.core.autoSwitch.at
+                  ? `${new Date(S.core.autoSwitch.at).toLocaleTimeString()} · ${S.core.autoSwitch.node || '—'} ${S.core.autoSwitch.delay === null ? '不通' : S.core.autoSwitch.delay + 'ms'}`
+                  : '内核运行后开始巡检'} />
+            ` : null}
+          </div>
+        </div>
+
+        <div class="set-group">
           <div class="set-label">关于</div>
           <div class="set-card">
-            <div class="about-row"><span>Wallnut</span><span class="about-val">0.5.1</span></div>
+            <div class="about-row"><span>Wallnut</span><span class="about-val">0.6.0</span></div>
             <div class="about-row"><span>内核</span><span class="about-val">${S.core.version || 'mihomo'}</span></div>
             <div class="about-row"><span>许可证</span><span class="about-val">GPL-3.0</span></div>
             <div class="about-row"><span>项目地址</span>

@@ -17,6 +17,7 @@ const CHANNELS = [
   'sub:importText',
   'sub:update',
   'sub:updateAll',
+  'sub:usage',
   'sub:remove',
   'sub:toggle',
   'sub:save',
@@ -31,6 +32,7 @@ const CHANNELS = [
   'region:remove',
   'region:presetAdd',
   'region:applyFastest',
+  'proxy:select',
   'rule:save',
   'ruleprovider:save',
   'ruleprovider:remove',
@@ -78,7 +80,7 @@ const CHANNELS = [
   'mitm:saveHosts'
 ];
 
-const EVENTS = ['state', 'core', 'log', 'test', 'toast', 'navigate', 'rewrite'];
+const EVENTS = ['state', 'core', 'log', 'test', 'toast', 'navigate', 'rewrite', 'auto:switch'];
 
 const api = {
   invoke: (channel, payload) => {

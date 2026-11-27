@@ -24,11 +24,12 @@ export default function Logs() {
 
   const entries = [];
   for (const l of S.logs || []) {
-    const p = parseLine(l.line);
-    entries.push({ t: l.t, level: p.level, msg: p.msg, source: 'core' });
+    /* 解析结果挂在条目上缓存：之前每次渲染都对所有日志重新跑正则 */
+    const p = l._p || (l._p = parseLine(l.line));
+    entries.push({ k: 'c' + (l._k || l.t), t: l.t, level: p.level, msg: p.msg, source: 'core' });
   }
   for (const l of S.uiLogs || []) {
-    entries.push({ t: l.t, level: l.level || 'info', msg: l.payload, source: 'api' });
+    entries.push({ k: 'a' + (l._k || l.t), t: l.t, level: l.level || 'info', msg: l.payload, source: 'api' });
   }
   entries.sort((a, b) => a.t - b.t);
 
@@ -70,7 +71,7 @@ export default function Logs() {
       <div class="scroll log-list" ref=${boxRef} style="flex:1">
         ${!filtered.length
           ? html`<${Empty} icon="logs" title="还没有日志" sub="启动内核后，这里的日志会实时滚动；WS 只推新日志，历史由进程输出兜底。" />`
-          : filtered.map((e, i) => html`<div class="log-line" key=${e.t + '-' + i}>
+          : filtered.map((e) => html`<div class="log-line" key=${e.k}>
               <span class="log-time">${hm(e.t)}</span>
               <span class=${'log-lv ' + e.level}>${e.level.toUpperCase().slice(0, 5)}</span>
               <span class="log-msg">${e.msg}</span>

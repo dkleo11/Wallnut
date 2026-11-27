@@ -1,7 +1,7 @@
 /* 策略组页：地区组 + 自定义组（对应原型画板 03） */
 
 import { html, Icon, Button, Switch, Chip, PageHead, Search, Tag, Lat, Empty, Spinner, Modal, Field, Input, useStore, useState } from '../ui.js';
-import { S, call, toast, applyFastest, runAllTest, cancelTest, delayMap, setPage } from '../store.js';
+import { S, call, toast, applyFastest, runAllTest, cancelTest, delayMap, setPage, switchNode } from '../store.js';
 import * as client from '../client.js';
 
 function selectedPolicy() {
@@ -80,11 +80,14 @@ function RegionStrat({ region }) {
           if (!S.core.running) return toast('mihomo 未运行，请先在首页连接', 'error');
           try {
             if (region.mode === 'auto') {
-              const changed = await call('region:save', { region: { ...region, mode: 'select', selected: name, best: name } });
-              if (!changed || !changed.ok) return;
-              await call('core:apply');
+              /* url-test → select 必须重建配置（组类型变了），这一次重载无法避免；
+                 但原来这里是 region:save（内部 apply）+ 再 core:apply，连续重载两遍。 */
+              const r = await call('region:applyFastest', { id: region.id, name });
+              if (!r || !r.ok) return toast((r && r.error) || '切换失败', 'error');
             } else {
-              await client.selectProxy(region.name, name);
+              /* 热切换：只改 selector 当前节点，不断开已有连接 */
+              const r = await switchNode(region.name, name, region.id);
+              if (!r || !r.ok) return;
             }
             await selectPolicy(region.name);
           } catch (err) { toast(err.message, 'error'); }

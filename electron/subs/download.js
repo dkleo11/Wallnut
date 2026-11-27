@@ -64,6 +64,12 @@ function download(url, opts = {}) {
           res.resume();
           return done(new Error(`HTTP ${status} ${res.statusMessage || ''} ${target}`));
         }
+        // 只想要响应头（查询订阅流量）：拿到头就断开，不下载正文
+        if (opts.headersOnly) {
+          const out = { text: '', size: 0, url: target, contentType: res.headers['content-type'] || '', headers: res.headers, status };
+          res.destroy();
+          return done(null, out);
+        }
         let stream = res;
         const enc = String(res.headers['content-encoding'] || '').toLowerCase();
         if (enc.includes('gzip')) stream = res.pipe(zlib.createGunzip());
@@ -79,7 +85,7 @@ function download(url, opts = {}) {
         stream.on('end', () => {
           const buf = Buffer.concat(chunks);
           const text = buf.toString('utf8').replace(/^\uFEFF/, '');
-          done(null, { text, size, url: target, contentType: res.headers['content-type'] || '' });
+          done(null, { text, size, url: target, contentType: res.headers['content-type'] || '', headers: res.headers });
         });
         stream.on('error', (e) => done(e));
       });
@@ -92,7 +98,7 @@ function download(url, opts = {}) {
       try {
         const p = url.replace(/^file:\/\//i, '');
         const text = fs.readFileSync(p, 'utf8');
-        return done(null, { text, size: text.length, url: p, contentType: 'file' });
+        return done(null, { text, size: text.length, url: p, contentType: 'file', headers: {} });
       } catch (e) { return done(e); }
     }
     go(url);

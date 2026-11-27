@@ -203,6 +203,13 @@ export function wireEvents() {
     });
   });
 
+  window.wallnut.on('auto:switch', (info) => {
+    if (!info) return;
+    const from = info.fromDelay ? `${info.from} ${info.fromDelay}ms` : info.from;
+    const to = info.toDelay ? `${info.to} ${info.toDelay}ms` : info.to;
+    toast(`节点过慢，已自动切换：${from} → ${to}`, 'ok', 4200);
+  });
+
   window.wallnut.on('rewrite', (payload) => {
     if (payload && payload.engine) set({ rewrite: payload.engine });
     if (payload && payload.ca) set({ ca: payload.ca });
@@ -213,9 +220,22 @@ export function wireEvents() {
     if (core.status === 'error' && core.error) toast(core.error, 'error', 5000);
   });
 
+  /* 内核日志逐条 set() 会让所有组件每来一行日志就重渲染一次：
+     先缓冲 200ms 合并成一次更新（与渲染层 10fps 节流配合） */
+  let logBuf = [];
+  let logTimer = null;
+  let logSeq = 0;
+  const flushLogs = () => {
+    logTimer = null;
+    if (!logBuf.length) return;
+    const batch = logBuf.splice(0);
+    set({ logs: [...S.logs, ...batch].slice(-1000) });
+  };
   window.wallnut.on('log', (entry) => {
-    const logs = [...S.logs, entry].slice(-1000);
-    set({ logs });
+    if (entry && typeof entry === 'object' && !entry._k) entry._k = ++logSeq;
+    logBuf.push(entry);
+    if (logBuf.length >= 400) { clearTimeout(logTimer); flushLogs(); }
+    else if (!logTimer) logTimer = setTimeout(flushLogs, 200);
   });
 
   window.wallnut.on('test', (ev) => {
@@ -271,6 +291,24 @@ export async function applyFastest(region, name) {
   return r;
 }
 
+/**
+ * 热切换节点：只改 selector 当前节点，不重载配置（不会断开任何已有连接）。
+ * 成功后立刻就地更新 now 并重绘，点击即生效，不必等 1 秒轮询。
+ */
+export async function switchNode(group, name, regionId = null) {
+  if (!S.core.running) { toast('mihomo 未运行，请先在首页连接', 'error'); return { ok: false }; }
+  const r = await call('proxy:select', { group, name, regionId }, { silent: true });
+  if (r && r.ok) {
+    const p = S.runtime && S.runtime.proxies && S.runtime.proxies.proxies;
+    if (p && p[group]) p[group].now = name;
+    emit();
+    toast(`已切换到「${name}」`, 'ok');
+  } else {
+    toast((r && r.error) || '切换失败', 'error');
+  }
+  return r || { ok: false };
+}
+
 export function regionById(id) {
   return S.regions.find((r) => r.id === id);
 }
@@ -289,7 +327,9 @@ export function groupTargets() {
 }
 
 /** 节点延迟表：name → ms（来自最近一次测速与 WS 历史） */
+let _dmCache = { test: null, proxies: null, map: {} };
 export function delayMap() {
+  if (S.test === _dmCache.test && S.runtime.proxies === _dmCache.proxies) return _dmCache.map;
   const map = {};
   if (S.test && S.test.results) for (const r of S.test.results) map[r.name] = r.ok ? r.delay : -1;
   if (S.runtime && S.runtime.proxies) {
@@ -298,6 +338,7 @@ export function delayMap() {
       if (h && h.delay) map[name] = map[name] || h.delay;
     }
   }
+  _dmCache = { test: S.test, proxies: S.runtime.proxies, map };
   return map;
 }
 

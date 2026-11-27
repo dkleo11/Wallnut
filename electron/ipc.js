@@ -8,6 +8,7 @@ const paths = require('./paths');
 const { buildConfig, collectNodes } = require('./config/generate');
 const { parseSubscriptionText, parseLocalText, dedupeNames, parseUri } = require('./subs/parse');
 const { download } = require('./subs/download');
+const { parseUserInfo, parseInfoNodes, mergeUsage, describe: describeUsage } = require('./subs/usage');
 const { parseRewriteText } = require('./rewrite/remote');
 const { SpeedTestRunner } = require('./core/speedtest');
 const { detectRegion, allPresets, regionFlag } = require('./regions');
@@ -79,6 +80,10 @@ function registerIpc({ store, core, rewrite, ca, getWindow, showWindow, quitApp,
     const win = getWindow();
     if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
   };
+  // 巡检器自动切换成功后推一条提示给界面（不阻塞切换本身）
+  core.on('autoswitch', (info) => send('auto:switch', info));
+  // 每次巡检的采样结果同步到界面（设置页显示「最近一次检查」，每 30 秒一次，开销可忽略）
+  core.on('autoswitch-state', () => send('core', core.snapshot()));
   const refreshApi = () => {
     const c = core.controllerCoords();
     runner.api = new ControllerApi(c.port, c.secret);
@@ -143,6 +148,8 @@ function registerIpc({ store, core, rewrite, ca, getWindow, showWindow, quitApp,
   ipcMain.handle('app:settings:save', async (_e, patch) => {
     const prev = clone(store.get().settings);
     store.update((d) => { d.settings = mergeDeep(d.settings, patch || {}); });
+    // 自动切换的开关/间隔/阈值改动即时生效
+    try { if (core.autoSwitcher) core.autoSwitcher.reconfigure(); } catch (_) {}
     if (patch && Object.prototype.hasOwnProperty.call(patch, 'language')) {
       i18n.setLanguage(store.get().settings.language || 'zh-CN');
       try { if (trayMgr) trayMgr.refresh(true); } catch (_) {}
@@ -289,8 +296,12 @@ function registerIpc({ store, core, rewrite, ca, getWindow, showWindow, quitApp,
     if (!sub) throw new Error('订阅不存在');
     const started = Date.now();
     const res = await download(sub.url, { timeout: 25000, insecure: sub.insecure === true });
+    const usage = parseUserInfo(res.headers);
     const parsed = parseSubscriptionText(res.text, sub.name);
-    if (!parsed.nodes.length) {
+    // 机场常把账户信息伪装成节点（「剩余流量：162.84 GB」「套餐到期：2027-04-16」「永久网址…」），
+    // 这类节点一旦进配置就会变成可切换的假节点，所以先分离：节点留用，信息拿来做流量展示。
+    const info = parseInfoNodes(parsed.nodes);
+    if (!info.nodes.length) {
       store.update((d) => {
         const s = d.subscriptions.find((x) => x.id === id);
         if (s) { s.lastError = parsed.warnings.join('；') || '未解析到节点'; s.lastAttemptAt = Date.now(); }
@@ -301,17 +312,26 @@ function registerIpc({ store, core, rewrite, ca, getWindow, showWindow, quitApp,
     store.update((d) => {
       const s = d.subscriptions.find((x) => x.id === id);
       if (!s) return;
-      s.nodes = parsed.nodes;
+      s.nodes = info.nodes;
       s.format = parsed.format;
       s.updatedAt = Date.now();
       s.lastAttemptAt = Date.now();
       s.lastError = null;
-      s.nodeCount = parsed.nodes.length;
+      s.nodeCount = info.nodes.length;
       s.remoteInfo = parsed.remotes || null;
+      s.infoNodes = info.junk;
+      // 用量：响应头（subscription-userinfo，按实际流量算）为主，信息节点补充重置天数/到期文案；
+      // 机场不给响应头时（如一次性订阅链接）才完全依赖信息节点。
+      const merged = mergeUsage(usage, info.traffic);
+      if (merged) s.traffic = merged;
     });
     broadcastState();
     const applied = await core.apply();
-    return { ok: true, format: parsed.format, nodeCount: parsed.nodes.length, warnings: parsed.warnings, applied, ms: Date.now() - started };
+    return {
+      ok: true, format: parsed.format, nodeCount: info.nodes.length,
+      infoNodes: info.junk.length, traffic: store.get().subscriptions.find((x) => x.id === id).traffic || null,
+      warnings: parsed.warnings, applied, ms: Date.now() - started
+    };
   };
 
   ipcMain.handle('sub:add', async (_e, { name, url, insecure }) => {
@@ -335,16 +355,21 @@ function registerIpc({ store, core, rewrite, ca, getWindow, showWindow, quitApp,
     const id = uid('sub');
     const parsed = parseSubscriptionText(text, name);
     if (!parsed.nodes.length) return { ok: false, error: parsed.warnings.join('；') || '未解析到节点', format: parsed.format };
+    // 粘贴导入的配置里同样可能有信息节点，一并分离出来当作用量
+    const info = parseInfoNodes(parsed.nodes);
+    if (!info.nodes.length) return { ok: false, error: '只解析到账户信息节点，没有可用节点', format: parsed.format };
     store.update((d) => {
       d.subscriptions.push({
         id, name: sanitizeProxyName(name || '导入配置', '导入配置'), url: url || ('inline:' + id),
         enabled: true, interval: 0, createdAt: Date.now(),
-        nodes: parsed.nodes, nodeCount: parsed.nodes.length, format: parsed.format, updatedAt: Date.now(), remoteInfo: parsed.remotes || null
+        nodes: info.nodes, nodeCount: info.nodes.length, format: parsed.format, updatedAt: Date.now(),
+        remoteInfo: parsed.remotes || null, infoNodes: info.junk,
+        traffic: mergeUsage(parseUserInfo({}), info.traffic) || null
       });
     });
     broadcastState();
     const applied = await core.apply();
-    return { ok: true, id, nodeCount: parsed.nodes.length, format: parsed.format, warnings: parsed.warnings, applied };
+    return { ok: true, id, nodeCount: info.nodes.length, format: parsed.format, warnings: parsed.warnings, applied };
   });
 
   ipcMain.handle('sub:update', async (_e, { id }) => {
@@ -366,6 +391,66 @@ function registerIpc({ store, core, rewrite, ca, getWindow, showWindow, quitApp,
     }
     return { ok: true, results };
   });
+
+  /**
+   * 查询某订阅的剩余流量：只请求响应头，不下载订阅正文，开销极小。
+   * 机场没返回 subscription-userinfo 时返回 skipped，界面据此显示「不支持」。
+   */
+  const queryUsage = async (id) => {
+    const sub = store.get().subscriptions.find((s) => s.id === id);
+    if (!sub) return { ok: false, error: '订阅不存在，可能已被删除' };
+    if (!/^https?:\/\//i.test(String(sub.url || ''))) {
+      return { ok: true, skipped: true, reason: '本地/内联订阅没有流量信息' };
+    }
+    try {
+      const res = await download(sub.url, { timeout: 15000, insecure: sub.insecure === true, headersOnly: true });
+      const usage = parseUserInfo(res.headers);
+      const cached = sub.traffic || null;
+      if (!usage) {
+        // 机场没给响应头（一次性订阅链接很常见）。上次更新订阅时若从信息节点读到了用量，
+        // 就继续用它并标注来源，而不是直接判定「无法查询」。
+        if (cached && (cached.remain != null || cached.resetDays != null || cached.expireAt || cached.expireText)) {
+          return {
+            ok: true, traffic: cached, text: describeUsage(cached), source: cached.source || 'node',
+            note: '该机场不返回 subscription-userinfo，用量取自订阅内的信息节点（更新订阅时获取）'
+          };
+        }
+        return { ok: true, skipped: true, reason: '订阅服务器未返回 subscription-userinfo 头，订阅内也没有信息节点，无法查询流量' };
+      }
+      // 响应头是权威数据，但要保住信息节点提供的重置天数 / 到期文案（不带数值，避免口径打架）
+      const supplement = cached && (cached.resetDays != null || cached.expireText || cached.site)
+        ? { resetDays: cached.resetDays, expireText: cached.expireText, site: cached.site, remain: null, total: 0, expireAt: null, webPage: cached.webPage || null }
+        : null;
+      const merged = mergeUsage(usage, supplement);
+      store.update((d) => {
+        const s = d.subscriptions.find((x) => x.id === id);
+        if (s) s.traffic = merged;
+      });
+      return { ok: true, traffic: merged, text: describeUsage(merged), source: merged.source };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  };
+
+  ipcMain.handle('sub:usage', async (_e, { id, all } = {}) => {
+    const ids = id ? [id] : (all === false ? [] : store.get().subscriptions.map((s) => s.id));
+    const results = [];
+    for (const sid of ids) results.push({ id: sid, ...(await queryUsage(sid)) });
+    broadcastState();
+    return { ok: true, results };
+  });
+
+  /** 启动/定时调用：只刷新「没有流量信息或已过期太久」的订阅 */
+  const refreshStaleUsage = async (minAgeMs = 3600e3) => {
+    const list = store.get().subscriptions.filter((s) => /^https?:\/\//i.test(String(s.url || ''))
+      && (!s.traffic || !s.traffic.at || Date.now() - s.traffic.at > minAgeMs
+        // 信息节点只给剩余额度、没有总额度：启动后补查一次响应头，把「涌浪」条变成真实百分比
+        || (!s.traffic.total && s.traffic.source !== 'header')));
+    const out = [];
+    for (const s of list) out.push({ id: s.id, ...(await queryUsage(s.id)) });
+    if (out.length) broadcastState();
+    return out;
+  };
 
   ipcMain.handle('sub:remove', async (_e, { id }) => {
     store.update((d) => { d.subscriptions = d.subscriptions.filter((s) => s.id !== id); });
@@ -424,7 +509,7 @@ function registerIpc({ store, core, rewrite, ca, getWindow, showWindow, quitApp,
     try {
       const res = await download(url, { timeout: 20000, insecure: insecure === true });
       const parsed = parseSubscriptionText(res.text, '预览');
-      return { ok: true, format: parsed.format, nodeCount: parsed.nodes.length, warnings: parsed.warnings, sample: parsed.nodes.slice(0, 5).map((n) => n.name), remotes: parsed.remotes || null };
+      return { ok: true, format: parsed.format, nodeCount: parsed.nodes.length, warnings: parsed.warnings, sample: parsed.nodes.slice(0, 5).map((n) => n.name), remotes: parsed.remotes || null, usage: parseUserInfo(res.headers) };
     } catch (err) { return { ok: false, error: err.message }; }
   });
 
@@ -556,15 +641,24 @@ function registerIpc({ store, core, rewrite, ca, getWindow, showWindow, quitApp,
   });
 
   /* ---------------- 地区 ---------------- */
-  ipcMain.handle('region:save', async (_e, { region }) => {
+  ipcMain.handle('region:save', async (_e, { region } = {}) => {
+    if (!region || typeof region !== 'object') return { ok: false, error: '参数不完整' };
+    const before = (store.get().regions || []).find((r) => r.id === region.id) || null;
     store.update((d) => {
       const idx = (d.regions || []).findIndex((r) => r.id === region.id);
       if (idx >= 0) d.regions[idx] = { ...d.regions[idx], ...region };
       else d.regions.push({ ...region, id: region.id || uid('rg'), order: d.regions.length, enabled: true });
     });
     broadcastState();
-    await core.apply();
-    return { ok: true };
+    /* 只有「组结构」变化才重建配置：reloadConfig 会断开所有现存连接。
+       selected/best/order 之类的元数据变化不需要重载 —— 切换节点走热切换。 */
+    const META_ONLY = new Set(['selected', 'best', 'order', 'count', 'sources']);
+    const changed = Object.keys(region).filter(
+      (k) => !META_ONLY.has(k) && JSON.stringify((before || {})[k]) !== JSON.stringify(region[k])
+    );
+    const structural = !before || changed.length > 0;
+    if (structural) await core.apply();
+    return { ok: true, applied: structural };
   });
 
   ipcMain.handle('region:remove', async (_e, { id }) => {
@@ -610,12 +704,37 @@ function registerIpc({ store, core, rewrite, ca, getWindow, showWindow, quitApp,
     });
     broadcastState();
     refreshApi();
-    try {
-      await runner.api.select(groupName, name);
-      return { ok: true, group: groupName, name };
-    } catch (err) {
-      return { ok: false, error: err.message };
+    // 热切换（带重试与串行化），不重载配置
+    const r = await core.select(groupName, name);
+    return r.ok ? { ok: true, group: groupName, name } : { ok: false, error: r.error };
+  });
+
+  /**
+   * 节点热切换统一入口：只改 selector 的当前节点，不重载配置，不断流。
+   * 组类型是 url-test/fallback 时 mihomo 不允许 PUT，会返回明确错误（前端可回退到
+   * 「改模式 + 重建配置」那条路）。
+   */
+  ipcMain.handle('proxy:select', async (_e, { group, name, regionId = null } = {}) => {
+    if (!core.snapshot().running) return { ok: false, error: 'mihomo 未运行，无法切换策略。请先在首页点击连接。' };
+    const g = String(group || '').trim();
+    const n = String(name || '').trim();
+    if (!g || !n) return { ok: false, error: '参数不完整' };
+    const r = await core.select(g, n);
+    if (r.ok && !r.skipped) {
+      /* 同步地区的 selected 元数据：配置重新生成时 select 组的默认选中项要跟上，
+         否则下一次 apply（改规则/订阅更新）会把用户的选择跳回去。 */
+      const regions = store.get().regions || [];
+      const region = regionId ? regions.find((x) => x.id === regionId) : regions.find((x) => x.name === g);
+      if (region && region.mode !== 'auto' && region.selected !== n) {
+        store.update((d) => {
+          const rr = d.regions.find((x) => x.id === region.id);
+          if (rr) rr.selected = n;
+        });
+      } else {
+        broadcastState();
+      }
     }
+    return r;
   });
 
   /* ---------------- 规则 ---------------- */
@@ -1069,7 +1188,7 @@ function registerIpc({ store, core, rewrite, ca, getWindow, showWindow, quitApp,
     try { await runner.api.closeAllConnections(); return { ok: true }; } catch (err) { return { ok: false, error: err.message }; }
   });
 
-  return { runner, broadcastState, refreshApi, applySub, updateDueSubscriptions };
+  return { runner, broadcastState, refreshApi, applySub, updateDueSubscriptions, queryUsage, refreshStaleUsage };
 }
 
 /** 到期订阅批量更新（自动更新巡检用） */

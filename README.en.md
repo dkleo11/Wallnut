@@ -2,7 +2,7 @@
 
 [简体中文](README.md) · **English**
 
-![version](https://img.shields.io/badge/version-0.5.1-0A84FF) ![platform](https://img.shields.io/badge/platform-Windows%2010%2F11-34C759) ![core](https://img.shields.io/badge/core-mihomo-5E5CE6)
+![version](https://img.shields.io/badge/version-0.6.0-0A84FF) ![platform](https://img.shields.io/badge/platform-Windows%2010%2F11-34C759) ![core](https://img.shields.io/badge/core-mihomo-5E5CE6)
 
 ---
 
@@ -25,9 +25,9 @@
 
 ## Download
 
-Grab `Wallnut-v0.5.1-portable-win-x64.zip` from **Releases**:
+Grab `Wallnut-v0.6.0-portable-win-x64.zip` from **Releases**:
 
-1. Download `Wallnut-v0.5.1-portable-win-x64.zip`
+1. Download `Wallnut-v0.6.0-portable-win-x64.zip`
 2. Unzip anywhere (no install needed)
 3. Run `Wallnut.exe`
 4. Add your own subscription in the app
@@ -84,6 +84,19 @@ package.json
 ```
 
 ## Changelog
+
+### 0.6.0 — 2026-11-27
+
+**Added**
+
+- Per-node remaining traffic: detect and strip "info nodes" from subscriptions (remaining data / reset days / expiry / website / ads) so they never enter the proxy config
+- Usage comes from `subscription-userinfo` headers, supplemented by info-node billing cycles; remaining data is shown on node groups and the current node, with a manual "Query traffic" button
+- A "surge" progress bar appears when the total quota is unknown, then switches to the real percentage once the header is fetched on startup
+
+**Improved**
+
+- Automatic switching for slow/dead nodes (two consecutive samples, cooldown and rate limits, manual-switch grace period, hot switch with no reload)
+- Performance improvements to the traffic bar, UI rendering and log writes
 
 ### 0.5.1 — 2026-11-23
 

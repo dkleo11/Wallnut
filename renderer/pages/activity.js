@@ -17,9 +17,15 @@ function policyOf(c) {
 
 let _prevConn = new Map();
 let _prevConnAt = 0;
+let _lastConns = null;
+let _lastRates = {};
 
 /** 每次 /connections 刷新时按 1 秒差值计算每条连接的实时速率；总流量仍取连接累计值 */
 function rateOf(conns) {
+  /* 同一份连接数据在多次重渲染中复用结果：
+     否则每次非数据更新触发的重渲染都会把 _prevConnAt 刷新掉，
+     既把速率显示成 0，又让下一次真实差值被极短的 dt 放大成尖峰。 */
+  if (conns === _lastConns) return _lastRates;
   const now = Date.now();
   const dt = Math.max(0.2, (now - _prevConnAt) / 1000);
   const rates = {};
@@ -32,6 +38,8 @@ function rateOf(conns) {
   }
   _prevConn = new Map(conns.map((c) => [c.id, { up: c.upload || 0, down: c.download || 0 }]));
   _prevConnAt = now;
+  _lastConns = conns;
+  _lastRates = rates;
   return rates;
 }
 

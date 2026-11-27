@@ -1,6 +1,6 @@
 /* 首页：大开关 + 实时速率 + 快捷操作 + 面板网格（对应原型画板 01） */
 
-import { html, Icon, Windmill, fmtBytes, fmtSpeed, fmtDuration, useStore, useState, useEffect } from '../ui.js';
+import { html, Icon, Windmill, UsageBar, Spinner, fmtBytes, fmtSpeed, fmtDuration, useStore, useState, useEffect } from '../ui.js';
 import { S, call, toast, runAllTest, cancelTest, setPage } from '../store.js';
 import * as client from '../client.js';
 
@@ -55,17 +55,30 @@ function livePoints(values, times, now, windowMs, left, width) {
   return pts;
 }
 
+/* 共享时钟：所有曲线共用一个 rAF、10fps 刷新即可。
+   原来是图表 + 两条 Spark 各自跑一个 30fps 的 rAF 循环（合计 90 次 setState/秒）。 */
+const clockSubs = new Set();
+let clockRaf = 0;
 function useClock() {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    let raf = 0;
-    let last = 0;
-    const loop = (t) => {
-      if (t - last >= 32) { last = t; setNow(Date.now()); }
-      raf = requestAnimationFrame(loop);
+    clockSubs.add(setNow);
+    if (!clockRaf) {
+      let last = 0;
+      const loop = (t) => {
+        if (t - last >= 100) {
+          last = t;
+          const v = Date.now();
+          clockSubs.forEach((fn) => fn(v));
+        }
+        clockRaf = requestAnimationFrame(loop);
+      };
+      clockRaf = requestAnimationFrame(loop);
+    }
+    return () => {
+      clockSubs.delete(setNow);
+      if (!clockSubs.size && clockRaf) { cancelAnimationFrame(clockRaf); clockRaf = 0; }
     };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
   }, []);
   return now;
 }
@@ -186,7 +199,8 @@ export default function Home() {
   const udp = conns.filter((c) => (c.metadata && c.metadata.network) === 'udp').length;
   const rulesHits = (S.runtime.rules || []).reduce((a, r) => a + (r.hitCount || 0), 0);
   const errors = (settings && S.state.subscriptions || []).filter((x) => x.lastError).length;
-  const hist = S.history || [];
+  // 连接采样改为 1s 后，缓冲 300 条 = 5 分钟；Spark 只画最近 60 秒，否则旧点会全部挤在左端
+  const hist = (S.history || []).filter((h) => Date.now() - h.t <= 60000);
   const down = hist.map((h) => h.down || 0);
   const up = hist.map((h) => h.up || 0);
   const curDown = fmtSpeed(S.traffic.down);
@@ -195,6 +209,19 @@ export default function Home() {
   const totalUp = fmtBytes(S.traffic.upTotal || 0);
   const total = fmtBytes((S.traffic.downTotal || 0) + (S.traffic.upTotal || 0));
   const mem = S.runtime.memory;
+  const subs = S.state.subscriptions || [];
+  const [qbusy, setQbusy] = useState(false);
+  const queryAllUsage = async () => {
+    if (qbusy) return;
+    setQbusy(true);
+    const r = await call('sub:usage', {}, { silent: true });
+    setQbusy(false);
+    const list = (r && r.results) || [];
+    const ok = list.filter((x) => x.ok && x.traffic).length;
+    const skip = list.filter((x) => x.skipped).length;
+    if (!list.length) return toast('没有可查询的订阅', 'info');
+    toast(ok ? `已刷新 ${ok} 个订阅的流量${skip ? `，${skip} 个不提供流量信息` : ''}` : '订阅源未返回流量信息', ok ? 'ok' : 'info');
+  };
 
   const toggle = async () => {
     if (busy) return;
@@ -303,6 +330,23 @@ export default function Home() {
         sub=${!running ? '内核未运行' : mem && mem.oslimit ? '上限 ' + Math.round(mem.oslimit / 1024 / 1024) + ' MB' : ''} />
       <${Tile} icon="chip" color="c-blue" label="内核版本" tag="meta"
         value=${S.core.version || 'mihomo'} sub=${running ? 'PID ' + S.core.pid + ' · 已运行 ' + fmtDuration(Date.now() - (S.core.startedAt || Date.now())) : '未运行'} />
+    </section>
+
+    <section class="traffic-card card">
+      <div class="card-head">
+        <div class="row"><span class="card-title">订阅流量</span><span class="sub">剩余额度 · 节点所属订阅的可用额度</span></div>
+        <button class="btn sm" disabled=${qbusy} onClick=${queryAllUsage}>${qbusy ? html`<${Spinner} />` : html`<${Icon} name="gauge" />`}查询</button>
+      </div>
+      ${subs.length
+        ? html`<div class="traffic-grid">
+            ${subs.map((sb) => html`<div class="traffic-item">
+              <div class="traffic-name">${sb.name}${sb.traffic ? '' : html`<span class="sub"> · 未获取</span>`}</div>
+              ${sb.traffic
+                ? html`<${UsageBar} traffic=${sb.traffic} compact=${true} />`
+                : html`<span class="sub">该订阅未返回 subscription-userinfo，点「查询」重试</span>`}
+            </div>`)}
+          </div>`
+        : html`<div class="sub">还没有订阅。导入订阅后，这里会显示每条订阅的剩余流量与到期时间。</div>`}
     </section>
 
     <${RouteChart} />

@@ -257,13 +257,32 @@ function createWindow() {
     revealWindow();
   });
 
+  /* 拖动/缩放窗口时 resize/move 每帧都会触发（每秒数十次），
+     原来每次都同步 writeFileSync，直接卡住主进程导致窗口拖动掉帧。
+     改为 500ms 防抖 + 异步写，退出路径仍会走一次同步兜底。 */
+  let boundsTimer = null;
   const saveBounds = () => {
     if (!win || win.isDestroyed()) return;
-    const b = win.getNormalBounds ? win.getNormalBounds() : win.getBounds();
-    try { fs.writeFileSync(boundsFile, JSON.stringify(b)); } catch (_) {}
+    if (boundsTimer) return;
+    boundsTimer = setTimeout(() => {
+      boundsTimer = null;
+      if (!win || win.isDestroyed()) return;
+      const b = win.getNormalBounds ? win.getNormalBounds() : win.getBounds();
+      fs.promises.writeFile(boundsFile, JSON.stringify(b)).catch(() => {});
+    }, 500);
   };
   win.on('resize', saveBounds);
   win.on('move', saveBounds);
+  win.on('close', () => {
+    if (!boundsTimer) return;
+    clearTimeout(boundsTimer);
+    boundsTimer = null;
+    if (!win || win.isDestroyed()) return;
+    try {
+      const b = win.getNormalBounds ? win.getNormalBounds() : win.getBounds();
+      fs.writeFileSync(boundsFile, JSON.stringify(b));
+    } catch (_) {}
+  });
 
   win.on('close', (e) => {
     try {
@@ -381,6 +400,8 @@ function main() {
     console.log('[wallnut] core =', require('./paths').coreBinary(), 'exists =', fs.existsSync(require('./paths').coreBinary()));
     createWindow();
     ipcBridge = registerIpc({ store, core, rewrite, ca, getWindow: () => win, showWindow, quitApp: () => app.quit(), trayMgr });
+    // 启动后补一次流量（只请求响应头，不影响订阅更新流程）
+    setTimeout(() => { ipcBridge.refreshStaleUsage().catch(() => {}); }, 6000);
 
     // 系统通知 + 托盘
     configureNotify({
@@ -430,7 +451,11 @@ function main() {
     }
 
     store.onChange((state) => {
-      try { send('state', { state: publicState(state), nodes: nodeList(state), regions: regionSummary(state, nodeList(state)) }); } catch (_) {}
+      try {
+        // nodeList 只计算一次：它内部会遍历全部节点并做地区识别，重复调用纯浪费
+        const nodes = nodeList(state);
+        send('state', { state: publicState(state), nodes, regions: regionSummary(state, nodes) });
+      } catch (_) {}
       if (trayMgr) trayMgr.refresh(true);
     });
 

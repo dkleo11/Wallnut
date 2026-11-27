@@ -217,6 +217,7 @@ export default function Rules() {
   const [batch, setBatch] = useState(false);
   const [provider, setProvider] = useState(null);
   const [validate, setValidate] = useState(false);
+  const [updatingAll, setUpdatingAll] = useState(false);
   const rules = S.state.rules || [];
   const providers = S.state.ruleProviders || [];
   const enabled = rules.filter((r) => !r.disabled).length;
@@ -234,8 +235,32 @@ export default function Rules() {
     await call('rule:save', { rules: next });
   };
 
+  const updateAll = async () => {
+    const list = providers.filter((p) => p.enabled !== false);
+    if (!list.length) return toast('没有启用的远程规则集', 'info');
+    if (updatingAll) return;
+    setUpdatingAll(true);
+    toast(`正在更新 ${list.length} 个规则集…`, 'info');
+    let ok = 0;
+    let fail = 0;
+    await Promise.all(list.map(async (p) => {
+      try {
+        const r = await call('ruleprovider:update', { id: p.id }, { silent: true });
+        if (r && r.ok) ok += 1;
+        else fail += 1;
+      } catch (_) {
+        fail += 1;
+      }
+    }));
+    setUpdatingAll(false);
+    toast(`规则集更新完成：${ok} 个成功${fail ? `，${fail} 个失败` : ''}`, fail ? 'error' : 'ok', 5000);
+  };
+
   return html`<div style="display:flex;flex-direction:column;gap:12px;min-height:0">
     <${PageHead} title="规则" sub=${`${enabled} 条生效 · ${providers.filter((p) => p.enabled !== false).length} 个远程规则集`}>
+      <button class="btn sm" disabled=${updatingAll || !providers.some((p) => p.enabled !== false)} title="一键更新全部启用规则集" onClick=${updateAll}>
+        ${updatingAll ? html`<${Spinner} />更新中` : html`<${Icon} name="refresh" />更新规则`}
+      </button>
       <button class="btn sm ghost" onClick=${() => setValidate(true)}><${Icon} name="shield" />校验</button>
       <button class="btn sm" onClick=${() => setBatch(true)}><${Icon} name="list" />批量粘贴</button>
       <button class="btn sm primary" onClick=${() => setAdding(true)}><${Icon} name="plus" />添加规则</button>

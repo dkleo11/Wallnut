@@ -2,7 +2,7 @@
 
 **简体中文** · [English](README.en.md)
 
-![version](https://img.shields.io/badge/version-0.5.1-0A84FF) ![platform](https://img.shields.io/badge/platform-Windows%2010%2F11-34C759) ![core](https://img.shields.io/badge/core-mihomo-5E5CE6)
+![version](https://img.shields.io/badge/version-0.6.0-0A84FF) ![platform](https://img.shields.io/badge/platform-Windows%2010%2F11-34C759) ![core](https://img.shields.io/badge/core-mihomo-5E5CE6)
 
 ---
 
@@ -27,7 +27,7 @@
 
 到仓库的 **Releases** 页面下载最新便携包：
 
-1. 下载 `Wallnut-v0.5.1-portable-win-x64.zip`
+1. 下载 `Wallnut-v0.6.0-portable-win-x64.zip`
 2. 解压到任意目录（不需要安装）
 3. 运行 `Wallnut.exe`
 4. 在界面里添加自己的订阅
@@ -84,6 +84,19 @@ package.json
 ```
 
 ## 更新记录
+
+### 0.6.0 — 2026-11-27
+
+**新增**
+
+- 节点剩余流量查询：识别并剥离订阅里的「信息节点」（剩余流量 / 重置天数 / 到期日 / 官网 / 广告节点），不再当成真节点导入内核
+- 流量以响应头 `subscription-userinfo` 为准，信息节点补充计费周期；节点页分组头与当前节点就地显示所属订阅剩余额度，工具栏可手动「查询流量」
+- 无总额度时显示「涌浪」进度条，启动后自动补查响应头切换成真实百分比
+
+**改进**
+
+- 节点过慢/不通时自动切换（连续两次判定、冷却与频次双限、手动切换避让、热切换不重载）
+- 订阅流量条、界面渲染与日志写入的性能优化
 
 ### 0.5.1 — 2026-11-23
 

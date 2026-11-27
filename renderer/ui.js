@@ -1,10 +1,15 @@
 import { h, Fragment } from './vendor/preact.mjs';
 import htm from './vendor/htm.mjs';
 import { useState, useEffect, useCallback, useMemo, useRef } from './vendor/hooks.mjs';
-import { localizeVNode } from './i18n.js';
+import { localizeVNode, getLanguage } from './i18n.js';
 
 const rawHtml = htm.bind(h);
-export const html = (strings, ...values) => localizeVNode(rawHtml(strings, ...values));
+/* zh-CN 即源语言：tr() 会原样返回，此时跳过整棵 VNode 的遍历克隆（大列表渲染可省掉一次全树对象复制）；
+   切到其它语言时仍走 localizeVNode 完整翻译。 */
+export const html = (strings, ...values) => {
+  const vnode = rawHtml(strings, ...values);
+  return getLanguage() === 'zh-CN' ? vnode : localizeVNode(vnode);
+};
 export { h, Fragment, useState, useEffect, useCallback, useMemo, useRef };
 export { useStore } from './store.js';
 
@@ -60,6 +65,44 @@ export const Lat = ({ ms, text }) => {
   if (ms === false || ms < 0) return html`<span class="lat bad">超时</span>`;
   const cls = ms < 120 ? 'ok' : ms < 300 ? 'warn' : 'warn';
   return html`<span class=${'lat ' + cls}>${ms}ms</span>`;
+};
+
+/* 订阅剩余流量条：remaining/total + 进度 + 到期提醒。
+   机场只给「剩余流量」不给总额度时（信息节点口径）保留进度条槽位，用「涌浪」扫光动画表示
+   「已读到用量、但总额度未知」，等响应头查询到 total 后自动切成真实百分比。 */
+export const UsageBar = ({ traffic, compact = false, showSource = false }) => {
+  if (!traffic) return null;
+  const used = fmtBytes(traffic.used || 0);
+  const up = fmtBytes(traffic.upload || 0);
+  const down = fmtBytes(traffic.download || 0);
+  const remain = traffic.remain == null ? null : fmtBytes(traffic.remain);
+  const total = traffic.total ? fmtBytes(traffic.total) : null;
+  const pct = traffic.percent == null ? null : Math.max(0, Math.min(100, Number(traffic.percent) || 0));
+  const tone = pct == null ? '' : pct >= 95 ? 'hot' : pct >= 80 ? 'warn' : '';
+  const exp = traffic.expireAt ? new Date(traffic.expireAt) : null;
+  const days = traffic.daysLeft;
+  const expText = exp
+    ? ((days != null && days <= 0) ? '已到期' : '套餐剩 ' + days + ' 天')
+    : (traffic.expireText && traffic.expireText !== '长期有效' ? '到期 ' + traffic.expireText : '长期有效');
+  const resetText = traffic.resetDays != null ? traffic.resetDays + ' 天后重置' : null;
+  const src = traffic.source === 'node' ? '取自订阅内信息节点' : traffic.source === 'header+node' ? '响应头 + 信息节点' : '响应头';
+  return html`<div class=${'usage' + (compact ? ' compact' : '') + (total ? '' : ' remain-only')}>
+    <div class="usage-line">
+      <span class="usage-k">剩余</span>
+      <b class=${'usage-v ' + tone}>${remain ? remain.v + ' ' + remain.u : (total ? '—' : '不限量')}</b>
+      ${total ? html`<span class="usage-sub">/ ${total.v} ${total.u}</span>` : null}
+      <span class=${'usage-exp' + (days != null && days <= 7 ? ' hot' : '')}>${expText}</span>
+      ${resetText ? html`<span class="usage-reset">${resetText}</span>` : null}
+    </div>
+    ${total
+      ? html`<div class="usage-bar"><i class=${tone} style=${'width:' + pct + '%'}></i></div>`
+      : html`<div class="usage-bar surge" title="机场未提供总额度，查询响应头后将显示实际用量"><i></i></div>`}
+    ${compact ? null : html`<div class="usage-foot">
+      <span>已用 ${used.v} ${used.u}${traffic.upload || traffic.download ? `（上行 ${up.v} ${up.u} · 下行 ${down.v} ${down.u}）` : ''}</span>
+      <span>到期 ${exp ? exp.toLocaleDateString() : (traffic.expireText || '长期')} · 查询于 ${timeAgo(traffic.at)}</span>
+    </div>`}
+    ${showSource ? html`<div class="usage-foot"><span>${src}${traffic.nodeRemain != null ? ' · 机场标称剩余 ' + fmtBytes(traffic.nodeRemain).v + ' ' + fmtBytes(traffic.nodeRemain).u : ''}</span></div>` : null}
+  </div>`;
 };
 
 export const Search = ({ value, onInput, placeholder, cls = '', style }) => html`<div class=${'search ' + cls} style=${style}>

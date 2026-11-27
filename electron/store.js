@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const paths = require('./paths');
 const { uid, clone, mergeDeep } = require('./util');
 const { defaultRegions } = require('./regions');
+const { parseInfoNodes, mergeUsage } = require('./subs/usage');
 
 function defaultRules() {
   return [
@@ -33,6 +34,8 @@ function defaultState() {
       testUrl: 'https://www.gstatic.com/generate_204',
       testTimeout: 5000,
       testConcurrency: 16,
+      /* 节点过慢自动切换：每 30s 检查当前节点，连续两次超过 1200ms 或不通就换到更快的节点 */
+      autoSwitch: { enabled: true, intervalSec: 30, slowMs: 1200, cooldownSec: 120, maxPer10Min: 6 },
       routingOptimize: false,
       systemProxy: false,
       tunEnabled: true,
@@ -125,6 +128,17 @@ class Store {
     if (!Array.isArray(state.rules)) state.rules = defaultRules();
     if (!Array.isArray(state.ruleProviders)) state.ruleProviders = [];
     if (!Array.isArray(state.subscriptions)) state.subscriptions = [];
+    // 机场会把账户信息伪装成节点（「剩余流量：162.84 GB」「套餐到期：…」「永久网址…」）。
+    // 旧版本把它们当成了真节点写进 state，这里在加载时清理一遍：伪节点剔除、用量并入 traffic。
+    // 幂等：已清理过的订阅再跑一次不会有任何变化。
+    state.subscriptions = state.subscriptions.map((s) => {
+      const list = Array.isArray(s.nodes) ? s.nodes : [];
+      if (!list.length) return s;
+      const info = parseInfoNodes(list);
+      if (!info.junk.length) return s;
+      const traffic = mergeUsage(s.traffic || null, info.traffic) || s.traffic || null;
+      return { ...s, nodes: info.nodes, nodeCount: info.nodes.length, traffic, infoNodes: info.junk };
+    });
     if (!Array.isArray(state.localNodes)) state.localNodes = [];
     if (!Array.isArray(state.rewrites)) state.rewrites = [];
     if (!Array.isArray(state.rewriteRemoteSets)) state.rewriteRemoteSets = [];
@@ -178,7 +192,11 @@ class Store {
 
   emit() {
     for (const fn of this.listeners) {
-      try { fn(this.state); } catch (_) {}
+      try { fn(this.state); } catch (err) {
+        // 监听器里跑的是广播/重载规则等关键逻辑，静默吞掉会让界面「看起来正常」但不再更新，
+        // 排查时毫无线索，至少留下栈信息。
+        console.error('[store] 状态监听器异常：', (err && err.stack) || err);
+      }
     }
   }
 

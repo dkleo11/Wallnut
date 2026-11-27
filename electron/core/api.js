@@ -72,7 +72,7 @@ class ControllerApi {
   }
 
   /** 切换某个策略组当前选中项 */
-  select(group, name) { return this.put(`/proxies/${encodeURIComponent(group)}`, { name }, 6000); }
+  select(group, name, timeout = 6000) { return this.put(`/proxies/${encodeURIComponent(group)}`, { name }, timeout); }
 
   /** 重新加载配置文件（不重启进程） */
   async reloadConfig(filePath, { force = true } = {}) {

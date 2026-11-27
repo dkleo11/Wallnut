@@ -42,6 +42,7 @@ class TrayManager {
     this.now = null;
     this.timer = null;
     this.refreshing = false;
+    this._menuSig = '';
   }
 
   destroy() {
@@ -61,6 +62,7 @@ class TrayManager {
 
   init() {
     if (this.tray) return;
+    this._menuSig = ''; // 新托盘必须重新构建一次菜单，避免沿用旧签名导致空菜单
     const base = paths.resourcesDir();
     const candidates = process.platform === 'win32' ? ['tray.png', 'tray.ico'] : ['tray.png'];
     let icon;
@@ -80,11 +82,18 @@ class TrayManager {
 
   async currentProxy() {
     if (!this.core.snapshot().running) { this.now = null; return; }
+    const main = (this.store.get().settings.defaultTarget || '主策略');
+    const c = this.core.controllerCoords();
+    const api = new ControllerApi(c.port, c.secret);
     try {
-      const c = this.core.controllerCoords();
-      const api = new ControllerApi(c.port, c.secret);
+      /* 只取主策略组这一项：/proxies 会返回全部节点与测速历史，
+         托盘每 4s 轮询没必要背整个列表。 */
+      const g = await api.get('/proxies/' + encodeURIComponent(main), 4000);
+      this.now = (g && (g.now || (g.all ? null : g.name))) || null;
+      return;
+    } catch (_) { /* 组名不存在或旧版接口：退回全量列表 */ }
+    try {
       const data = await api.get('/proxies', 4000);
-      const main = (this.store.get().settings.defaultTarget || '主策略');
       const g = data && data.proxies && data.proxies[main];
       this.now = (g && g.now) || (data && data.proxies && data.proxies.GLOBAL && data.proxies.GLOBAL.now) || null;
     } catch (_) { this.now = this.now || null; }
@@ -110,6 +119,12 @@ class TrayManager {
     if (process.platform !== 'darwin') {
       this.tray.setTitle && this.tray.setTitle('');
     }
+
+    /* 菜单签名：没变化就不重建。原来每 4s 无条件 buildFromTemplate + setContextMenu，
+       Windows 上重建会把正在展开的托盘菜单收起，也白白产生大量原生对象。 */
+    const sig = [running, this.now || '', mode, !!st.launchAtLogin, status].join('|');
+    if (sig === this._menuSig) return;
+    this._menuSig = sig;
 
     const template = [
       { label: `Wallnut · ${status}${this.now ? ' · ' + this.now : ''}`, enabled: false },
@@ -185,12 +200,18 @@ class TrayManager {
 
   async toggleAutostart(enable) {
     const r = autostart.apply(enable);
-    this.store.update((d) => { d.settings.launchAtLogin = !!enable; });
-    notify({
-      title: 'Wallnut',
-      body: enable ? '已开启开机自启动（登录后最小化到托盘）' : '已关闭开机自启动',
-      silent: true
-    });
+    // 注册表写入失败时不能把 settings 标成已开启，否则界面/托盘显示「已设置」但实际不生效，
+    // 重启后 autostart.sync() 又会把它改回去。ipc.js 的 app:autostart 就是这么处理的。
+    if (r && r.ok) {
+      this.store.update((d) => { d.settings.launchAtLogin = !!enable; });
+      notify({
+        title: 'Wallnut',
+        body: enable ? '已开启开机自启动（登录后最小化到托盘）' : '已关闭开机自启动',
+        silent: true
+      });
+    } else {
+      notify({ title: 'Wallnut', body: '开机自启动设置失败：' + ((r && r.error) || '未知错误') });
+    }
     if (!r.ok) notify({ title: 'Wallnut', body: '自启动设置失败：' + (r.error || '未知错误') });
     this.refresh(true);
   }

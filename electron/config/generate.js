@@ -123,7 +123,7 @@ function groupNameForRegion(region, used) {
  * @param {object} state Wallnut state
  * @returns {{yaml:string, meta:object}}
  */
-function buildConfig(state) {
+function buildConfig(state, ports) {
   const s = state.settings;
   const collected = collectNodes(state);
   const { nodes, regionOf, regions } = collected;
@@ -241,7 +241,9 @@ function buildConfig(state) {
       interval: Number(rp.interval) > 0 ? Number(rp.interval) : 86400,
       // 许多公开 rule-provider 是纯文本行列表（format: text），硬编码 yaml 会让 mihomo 加载失败。
       format: rp.format === 'text' ? 'text' : 'yaml',
-      proxy: 'DIRECT'
+      // 规则集下载也走主策略，而不是 DIRECT：raw.githubusercontent.com 在部分网络下直连会失败。
+      // mihomo 的 provider `proxy` 接受策略组名，主策略组已包含地区组/自定义组。
+      proxy: mainName
     };
     ruleSetRules.push(`RULE-SET,${rname},${resolvedTarget(rp.target)}`);
   }
@@ -253,13 +255,15 @@ function buildConfig(state) {
 
   /* ---------- 基础段 ---------- */
   const config = {
-    'mixed-port': Number(s.mixedPort) || 7890,
+    // ports 覆盖：端口被占用自动顺延后，配置文件必须写实际监听的端口，
+    // 否则内核仍去绑原端口启动失败，而控制器/系统代理却按新端口工作。
+    'mixed-port': Number(ports && ports.mixed) || Number(s.mixedPort) || 7890,
     'allow-lan': !!s.allowLan,
     'bind-address': '127.0.0.1',
     mode: ['rule', 'global', 'direct'].includes(s.mode) ? s.mode : 'rule',
     'log-level': s.logLevel || 'info',
     ipv6: !!s.ipv6,
-    'external-controller': `127.0.0.1:${Number(s.controllerPort) || 9090}`,
+    'external-controller': `127.0.0.1:${Number(ports && ports.controller) || Number(s.controllerPort) || 9090}`,
     secret: String(s.secret || ''),
     'unified-delay': !!s.unifiedDelay,
     'tcp-concurrent': true,

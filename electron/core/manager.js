@@ -7,6 +7,7 @@ const { spawn } = require('child_process');
 const EventEmitter = require('events');
 const paths = require('../paths');
 const { ControllerApi } = require('./api');
+const { AutoSwitcher } = require('./auto-switch');
 const { sleep } = require('../util');
 
 function portFree(port, host = '127.0.0.1') {
@@ -45,7 +46,13 @@ class CoreManager extends EventEmitter {
     this.api = null;
     this.meta = null;
     this.currentPorts = { mixed: null, controller: null };
-    this._logWrites = 0;
+    this._selectChain = null;
+    this._selectWant = null;
+    this._userSelectAt = 0;   // 用户最近一次手动切换的时间，巡检器据此避让
+    this.autoSwitcher = new AutoSwitcher(this, store);
+    this._logBuf = '';
+    this._logFlushTimer = null;
+    this._logPendingLines = 0;
   }
 
   /** 磁盘日志按大小滚动，避免 core.log 无限增长撑大便携目录 */
@@ -65,10 +72,26 @@ class CoreManager extends EventEmitter {
     this.logs.push(entry);
     if (this.logs.length > 1200) this.logs.splice(0, this.logs.length - 1200);
     this.emit('log', entry);
+    /* 每行都 appendFileSync 等于每行一次 open+write+close 同步系统调用，
+       代理繁忙时（mihomo 每建立/关闭连接都打日志）会阻塞整个主进程事件循环。
+       改为内存缓冲：攒 250ms 或 64KB 后合并成一次异步写入。 */
+    this._logBuf += `[${new Date(entry.t).toISOString()}] ${stream}: ${entry.line}\n`;
+    if (this._logBuf.length >= 65536) this.flushLogFile();
+    else if (!this._logFlushTimer) this._logFlushTimer = setTimeout(() => this.flushLogFile(), 250);
+  }
+
+  /** 落盘缓冲日志；sync=true 用于退出/停止前的最后刷写 */
+  flushLogFile(sync = false) {
+    if (this._logFlushTimer) { clearTimeout(this._logFlushTimer); this._logFlushTimer = null; }
+    const buf = this._logBuf;
+    if (!buf) return;
+    this._logBuf = '';
+    this._logPendingLines += buf.split('\n').length - 1;
+    // 每累计 200 行检查一次体积，避免每行都 stat 带来的开销
+    if (this._logPendingLines >= 200) { this._logPendingLines = 0; this.rotateLogIfNeeded(); }
     try {
-      // 每 200 行检查一次体积，避免每行都 stat 带来的开销
-      if ((this._logWrites++ % 200) === 0) this.rotateLogIfNeeded();
-      fs.appendFileSync(this.logFile, `[${new Date(entry.t).toISOString()}] ${stream}: ${entry.line}\n`);
+      if (sync) fs.appendFileSync(this.logFile, buf);
+      else fs.appendFile(this.logFile, buf, () => {});
     } catch (_) {}
   }
 
@@ -155,7 +178,7 @@ class CoreManager extends EventEmitter {
     let yaml = configYaml;
     if (!yaml) {
       const { buildConfig } = require('../config/generate');
-      yaml = buildConfig(this.store.get()).yaml;
+      yaml = buildConfig(this.store.get(), this.currentPorts).yaml;
     }
     const file = this.writeConfig(yaml);
 
@@ -183,7 +206,9 @@ class CoreManager extends EventEmitter {
       this.proc = null;
       this.pid = null;
       this.status = 'idle';
+      this.autoSwitcher.stop();
       this.pushLog(`[wallnut] 内核退出 code=${code} signal=${signal || ''}`, 'system');
+      this.flushLogFile(true); // 退出原因必须落盘，不能留在缓冲里
       this.emit('status', this.snapshot());
       if (this.shouldRun && wasRunning) this.scheduleRestart();
       if (wasRunning) this.emit('crash', { code, signal: signal || null });
@@ -201,6 +226,7 @@ class CoreManager extends EventEmitter {
           this.startedAt = Date.now();
           this.restarts = 0;
           this.emit('status', this.snapshot());
+          this.autoSwitcher.start();
           return { ok: true, status: 'running', version: this.version, ports: this.currentPorts };
         }
       } catch (_) {}
@@ -230,6 +256,7 @@ class CoreManager extends EventEmitter {
 
   async stop() {
     this.shouldRun = false;
+    this.autoSwitcher.stop();
     if (!this.proc) { this.status = 'idle'; this.emit('status', this.snapshot()); return { ok: true }; }
     this.status = 'stopping';
     this.emit('status', this.snapshot());
@@ -238,6 +265,7 @@ class CoreManager extends EventEmitter {
     const deadline = Date.now() + 5000;
     while (Date.now() < deadline && this.proc) await sleep(150);
     if (this.proc) { try { this.proc.kill('SIGKILL'); } catch (_) {} }
+    this.flushLogFile(true);
     this.status = 'idle';
     this.emit('status', this.snapshot());
     return { ok: true };
@@ -270,6 +298,39 @@ class CoreManager extends EventEmitter {
     }
   }
 
+  /**
+   * 热切换某个策略组（selector）的当前节点。
+   * 只发 PUT /proxies/{group}，**不重载配置** —— reloadConfig 会重建全部代理并断开
+   * 现存连接，正在下载/视频/SSH 会立刻断流。连点多个节点时按 latest-wins 排队，
+   * 只有最后点的那次真正执行，避免请求乱序导致「切了 A 结果停在 B」。
+   */
+  async select(group, name, { retries = 1, timeout = 8000, auto = false } = {}) {
+    if (this.status !== 'running') return { ok: false, error: 'mihomo 未运行' };
+    // 手动切换后 45 秒内巡检器不插手，避免和用户抢方向盘
+    if (!auto) this._userSelectAt = Date.now();
+    const want = { group, name };
+    this._selectWant = want;
+    const prev = this._selectChain || Promise.resolve();
+    const run = prev.catch(() => {}).then(async () => {
+      if (this._selectWant !== want) return { ok: true, skipped: true };
+      let lastErr = null;
+      for (let i = 0; i <= retries; i += 1) {
+        try {
+          await this.api.select(group, name, timeout);
+          this.pushLog(`[wallnut] 切换「${group}」→ ${name}`, 'system');
+          return { ok: true, group, name };
+        } catch (err) {
+          lastErr = err;
+          // 控制器在批量测速/高并发下偶发超时，重试一次即可，不要升级成重载配置
+          if (i < retries) await sleep(150);
+        }
+      }
+      return { ok: false, error: (lastErr && lastErr.message) || '切换失败' };
+    });
+    this._selectChain = run;
+    return run;
+  }
+
   controllerCoords() {
     return { host: '127.0.0.1', port: this.currentPorts.controller || (this.store.get().settings.controllerPort), mixedPort: this.currentPorts.mixed, secret: this.store.get().settings.secret };
   }
@@ -283,7 +344,8 @@ class CoreManager extends EventEmitter {
       startedAt: this.startedAt,
       error: this.lastError,
       ports: this.controllerCoords(),
-      restarts: this.restarts
+      restarts: this.restarts,
+      autoSwitch: this.autoSwitcher ? this.autoSwitcher.summary() : null
     };
   }
 }

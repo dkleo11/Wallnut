@@ -1,6 +1,6 @@
 /* 订阅与本地节点（对应 QX 的 [server_remote] / [server_local]） */
 
-import { html, Icon, Button, Switch, Seg, PageHead, Tag, Lat, Empty, Spinner, Modal, Field, Input, Textarea, fmtDuration, timeAgo, useStore, useState } from '../ui.js';
+import { html, Icon, Button, Switch, Seg, PageHead, Tag, Lat, Empty, Spinner, Modal, Field, Input, Textarea, UsageBar, fmtBytes, fmtDuration, timeAgo, useStore, useState } from '../ui.js';
 import { S, call, toast, delayMap } from '../store.js';
 
 function maskUrl(url = '') {
@@ -48,6 +48,9 @@ function SubRow({ sub, onEdit }) {
       ${sub.remoteInfo && (sub.remoteInfo.proxyProviders || sub.remoteInfo.ruleProviders)
         ? html`<span class="sub">源文件含 provider 配置，已转换为本地节点</span>` : null}
     </div>
+    ${sub.traffic
+      ? html`<${UsageBar} traffic=${sub.traffic} />`
+      : html`<div class="usage none"><span>未获取到流量信息</span><span class="sub">订阅服务器未返回 subscription-userinfo 头（部分机场不提供，或需在更新订阅时才能取到）</span></div>`}
     ${sub.lastError ? html`<div class="cc-warn" style="margin:0"><${Icon} name="alert" /><span>${sub.lastError}</span></div>` : null}
   </div>`;
 }

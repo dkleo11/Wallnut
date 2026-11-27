@@ -1,6 +1,6 @@
 /* 节点页：分段「节点 / 订阅与本地节点」；节点段为搜索 + 地区筛选 + 分组节点表 + 批量测速（对应原型画板 02） */
 
-import { html, Icon, Chip, PageHead, Search, Tag, Lat, Empty, Spinner, useStore, useState } from '../ui.js';
+import { html, Icon, Chip, PageHead, Search, Tag, Lat, Empty, Spinner, useStore, useState, fmtBytes } from '../ui.js';
 import { S, call, toast, runAllTest, cancelTest, delayMap } from '../store.js';
 import { SubsPanel } from './subs.js';
 
@@ -33,6 +33,32 @@ export default function Nodes() {
   const mainGroup = (S.state && S.state.settings.defaultTarget) || '主策略';
   const dmap = { ...delayMap(), ...localDelay };
   const now = (S.runtime.proxies && S.runtime.proxies.proxies && S.runtime.proxies.proxies[mainGroup] || {}).now;
+
+  /* 节点所属订阅 → 该订阅的剩余流量（机场按订阅计费，节点级只多一个「N 天后重置」） */
+  const subById = {};
+  for (const sb of (S.state && S.state.subscriptions) || []) subById[sb.id] = sb;
+  const subRemain = (id) => {
+    const t = subById[id] && subById[id].traffic;
+    if (!t || t.remain == null) return null;
+    const r = fmtBytes(t.remain);
+    return `剩余 ${r.v} ${r.u}`;
+  };
+  const subReset = (id) => {
+    const t = subById[id] && subById[id].traffic;
+    return t && t.resetDays != null ? `${t.resetDays} 天后重置` : '';
+  };
+  const scanAll = async () => {
+    const r = await call('sub:usage', {}, { silent: true });
+    const list = (r && r.results) || [];
+    const good = list.filter((x) => x.ok && x.traffic);
+    const skip = list.length - good.length;
+    if (!list.length) return toast('没有可查询的订阅', 'info');
+    if (!good.length) return toast(skip ? '这些订阅都不提供流量信息' : '查询失败', 'info');
+    toast(`已刷新 ${good.length} 个订阅的流量${skip ? `，${skip} 个不提供` : ''}`, 'ok');
+    if (good[0] && good[0].text) toast(good[0].text, 'info');
+  };
+  const curNode = S.nodes.find((n) => n.name === now);
+  const curSubId = curNode && curNode.sourceId;
 
   const regionFlags = {};
   for (const r of S.regions) regionFlags[r.id] = r.flag;
@@ -89,6 +115,9 @@ export default function Nodes() {
             <span class="np-count">${S.nodes.length}</span>
           </div>
           <div class="np-actions">
+            <button class="btn sm" title="向订阅服务器查询剩余流量（节点所属订阅的额度）" onClick=${scanAll}>
+              <${Icon} name="refresh" />查询流量
+            </button>
             <${Search} cls="node" value=${query} onInput=${setQuery} placeholder="搜索节点、协议或地区" style="width:230px;height:32px" />
             ${S.test && S.test.running
               ? html`<button class="btn primary sm" onClick=${() => cancelTest()}><${Spinner} />停止 ${S.test.done}/${S.test.total}</button>`
@@ -117,17 +146,16 @@ export default function Nodes() {
                       <${Icon} name="server" />
                       <span class="gh-name">${g.name}</span>
                       <span class="gh-meta">${g.nodes.length} 个节点</span>
+                      ${subRemain(g.id) ? html`<span class="gh-sub">${subRemain(g.id)}${subReset(g.id) ? ' · ' + subReset(g.id) : ''}</span>` : null}
                     </button>
                   </div>
                   ${collapsed[g.id] ? null : html`<div class="node-card card">
                     <div class="node-list">
                       ${g.nodes.map((n) => {
                         const d = dmap[n.name];
-                        const selected = now === n.name;
-                        return html`<div key=${n.name} class=${'node-row' + (selected ? ' sel' : '')}>
-                          ${selected ? html`<span class="selbar"></span>` : null}
+                        return html`<div key=${n.name} class="node-row">
                           <span class="flag-em">${regionFlags[n.region] || '🌐'}</span>
-                          <span class=${'node-name' + (selected ? ' on' : '')}>${n.name}</span>
+                          <span class="node-name">${n.name}</span>
                           <span class="node-tags">
                             <${Tag}>${(n.type || '').toUpperCase()}</${Tag}>
                             ${n.udp ? html`<${Tag} cls="udp">UDP</${Tag}>` : null}
@@ -153,7 +181,7 @@ export default function Nodes() {
             <span>${fastest ? html`最快 <strong>${fastest.name}</strong> · ${fastest.delay}ms` : '未测速'}</span>
           </div>
           <div class="lb-right">
-            <span class="np-current">当前 ${now || '—'}</span>
+            <span class="np-current">当前 ${now || '—'}${subRemain(curSubId) ? html` · <span class="np-sub">${subRemain(curSubId)}</span>` : null}</span>
             <button class="btn sm" onClick=${() => setSortDelay(!sortDelay)}>
               <${Icon} name="filter" />${sortDelay ? '按延迟' : '按名称'}
             </button>

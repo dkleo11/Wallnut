@@ -754,7 +754,7 @@ svg { display: block; }
 
 /* 节点页恢复单列上下结构；订阅源在上，节点列表在下 */
 .nodes-page > .source-pane { height:auto; max-height:none; }
-.nodes-page > .node-pane { height:auto; }
+.nodes-page > .node-pane { height:auto; overflow:visible; flex:none; }
 .nodes-page .sp-list {
   display:grid;
   grid-template-columns:repeat(2,minmax(0,1fr));
@@ -765,7 +765,7 @@ svg { display: block; }
 }
 .nodes-page .src-row { border:1px solid var(--line); border-radius:10px; background:var(--card); }
 .nodes-page .src-row:last-child { border-bottom:1px solid var(--line); }
-.nodes-page .np-body { overflow-y:auto; overflow-x:hidden; }
+.nodes-page .np-body { overflow:visible; flex:none; min-height:0; }
 
 /* 策略页右上角三个按钮统一尺寸 */
 .groups-top-action { width:132px; height:38px; min-height:38px; padding:0 10px; font-size:12.5px; justify-content:center; gap:6px; flex:none; }
@@ -789,7 +789,7 @@ svg { display: block; }
 
 /* 修复订阅区被 flex 压缩后与节点区重叠 */
 .nodes-page > .subs-block { flex: none; }
-.nodes-page > .node-pane { flex: 1 1 auto; height: auto; min-height: 220px; }
+.nodes-page > .node-pane { flex:none; height:auto; min-height:0; }
 
 /* 三个顶部操作按钮统一文字字号 */
 .btn.groups-top-action { font-size: 12.5px; font-weight: 600; height: 38px; min-height: 38px; }
@@ -1320,3 +1320,37 @@ button:focus-visible, .nav-item:focus-visible, .input:focus-visible,
 .about-link .ico { width: 12px; height: 12px; flex: none; }
 .about-link:hover { text-decoration: underline; }
 .about-row > span:first-child { flex: none; }
+
+/* ---------- 订阅剩余流量 ---------- */
+.usage { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.usage.compact { gap: 4px; }
+.usage-line { display: flex; align-items: baseline; gap: 6px; font-size: 11px; color: var(--sub); flex-wrap: wrap; }
+.usage-k { font-size: 11px; }
+.usage-v { font-size: 13px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+.usage.compact .usage-v { font-size: 12px; }
+.usage-v.warn { color: var(--orange); }
+.usage-v.hot { color: var(--red); }
+.usage-sub { color: var(--sub); }
+.usage-exp { margin-left: auto; color: var(--sub); }
+.usage-exp.hot { color: var(--orange); }
+/* 「N 天后重置」：机场信息节点提供的计费周期，语气比到期更轻 */
+.usage-reset { font-size: 11px; color: var(--sub); border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; line-height: 17px; }
+/* 只有剩余额度、没有总额度时：进度条槽位保留，用一条「涌浪」扫光代替百分比，
+   让用户仍能一眼看到「这里有流量数据」，并提示查询响应头后会得到真实进度。 */
+.usage.remain-only .usage-bar i { width: 38% !important; background: linear-gradient(90deg, transparent, var(--indigo), transparent); animation: usage-surge 2.8s ease-in-out infinite; }
+@keyframes usage-surge { 0% { transform: translateX(-110%); } 100% { transform: translateX(290%); } }
+@media (prefers-reduced-motion: reduce) { .usage.remain-only .usage-bar i { animation: none; width: 100% !important; opacity: .3; } }
+.usage-bar { height: 5px; border-radius: 3px; background: var(--fill-2); overflow: hidden; }
+.usage-bar i { display: block; height: 100%; border-radius: 3px; background: var(--indigo); transition: width .3s ease; }
+.usage-bar i.warn { background: var(--orange); }
+.usage-bar i.hot { background: var(--red); }
+.usage-foot { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; color: var(--sub); flex-wrap: wrap; }
+.usage.none { flex-direction: row; align-items: baseline; gap: 8px; font-size: 11px; color: var(--sub); flex-wrap: wrap; }
+.traffic-card { flex: none; display: flex; flex-direction: column; gap: 10px; padding: 12px 18px; }
+.traffic-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 24px; }
+.traffic-item { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.traffic-name { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 节点页：分组标题上展示该订阅的剩余流量（机场按订阅计费，节点级只多「重置天数」） */
+.gh-sub { font-size: 11px; color: var(--sub); margin-left: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.np-current .np-sub { color: var(--sub); font-weight: 400; }
+@media (max-width: 980px) { .traffic-grid { grid-template-columns: 1fr; } }

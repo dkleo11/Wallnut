@@ -58,8 +58,27 @@ let routeActivity = {};
 let rejectTimer;
 let connectionsPending = false;
 
+/* /logs WS 每来一行就替换一次 600 条数组并把整棵树重渲染，代价过高：
+   先入缓冲，200ms 合并成一次状态更新（与 10fps 的 tick 节流配合） */
+let uiLogBuf = [];
+let uiLogTimer = null;
+let uiLogSeq = 0;
+function scheduleUiLogFlush() {
+  if (uiLogTimer) return;
+  uiLogTimer = setTimeout(() => {
+    uiLogTimer = null;
+    if (!uiLogBuf.length) return;
+    const batch = uiLogBuf.splice(0);
+    S.uiLogs = [...(S.uiLogs || []), ...batch].slice(-600);
+    window.__wallnutTick && window.__wallnutTick();
+  }, 200);
+}
+
 function closeStreams() {
   clearTimeout(rejectTimer);
+  clearTimeout(uiLogTimer);
+  uiLogTimer = null;
+  uiLogBuf = [];
   sampleTraffic = createTrafficSampler();
   routeActivity = {};
   S.routeHistory = [];
@@ -91,15 +110,16 @@ function connectStreams() {
 
   streams.push(client.openStream('/logs?level=' + ((S.state && S.state.settings.logLevel) || 'info'), {
     onMessage: (m) => {
-      S.uiLogs = [...(S.uiLogs || []), { t: Date.now(), level: m.type || 'info', payload: m.payload }].slice(-600);
+      uiLogBuf.push({ t: Date.now(), level: m.type || 'info', payload: m.payload, _k: ++uiLogSeq });
       if (isRejectedRoute(m.payload)) {
         routeActivity.reject = true;
         clearTimeout(rejectTimer);
         rejectTimer = setTimeout(() => { routeActivity.reject = false; tick(); }, 1400);
       }
-      tick();
+      scheduleUiLogFlush();
     }
   }));
+
 }
 
 async function refreshRuntime(opts = {}) {
@@ -356,7 +376,13 @@ export default function App() {
   const [, tick] = useState(0);
 
   useEffect(() => {
-    window.__wallnutTick = () => tick((x) => x + 1);
+    /* 合并高频事件（日志 / 连接 / 流量）触发的重渲染：最多 10fps。
+       之前每条日志、每次 WS 推送都会 tick 一次，等于每条消息重渲染整棵树。 */
+    let pending = 0;
+    window.__wallnutTick = () => {
+      if (pending) return;
+      pending = setTimeout(() => { pending = 0; tick((x) => x + 1); }, 100);
+    };
     (async () => {
       if (!wired) { wired = true; wireEvents(); }
       const data = await boot();
@@ -366,7 +392,7 @@ export default function App() {
       connectStreams();
       refreshRuntime();
     })();
-    return () => { window.__wallnutTick = null; closeStreams(); };
+    return () => { window.__wallnutTick = null; if (pending) clearTimeout(pending); closeStreams(); };
   }, []);
 
   useEffect(() => {
@@ -374,7 +400,9 @@ export default function App() {
     connectStreams();
     if (!S.core.running) return undefined;
     refreshRuntime();
-    const pid = setInterval(() => refreshRuntime({ connectionsOnly: true }), 200);
+    // 连接列表轮询：1s 一次即可（活动页标注的也是「每 1 秒刷新」），
+    // 200ms 会在代理繁忙时产生 5 次/秒的 /connections 全量传输与解析。
+    const pid = setInterval(() => refreshRuntime({ connectionsOnly: true }), 1000);
     const slowPid = setInterval(() => refreshRuntime(), 5000);
     return () => { clearInterval(pid); clearInterval(slowPid); };
   }, [S.booted, S.core.running, S.core.status]);
